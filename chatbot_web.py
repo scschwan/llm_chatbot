@@ -578,6 +578,7 @@ def process_query_with_context(query, session_id):
     return query, None
 
 # init_rag_system 함수에 로그 추가
+'''
 def init_rag_system():
     """LangChain RAG 시스템 초기화"""
     global retriever, llm, rag_chain ,sentiment_chain
@@ -640,7 +641,9 @@ def init_rag_system():
     )
 
     # 6. EXAONE 모델 로드 및 LangChain LLM 래퍼 설정
-    model_name = "LGAI-EXAONE/EXAONE-3.5-32B-Instruct"
+    model_name = "LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct"
+    #model_name = "LGAI-EXAONE/EXAONE-Deep-32B-AWQ"
+    #streaming = True 
     logger.info(f"{model_name} 모델 로드 중...")
 
     # 토크나이저 로드
@@ -693,6 +696,105 @@ def init_rag_system():
     rag_chain = create_multimodal_rag_chain(retriever, llm)
 
     # 감정 분석 체인 생성
+    sentiment_chain = create_sentiment_analysis_chain(llm)
+
+    logger.info("LangChain RAG 시스템 초기화 완료!")
+    return True
+'''
+
+# 모델 로드 및 토크나이저 설정 부분
+def init_rag_system():
+    """LangChain RAG 시스템 초기화"""
+    global retriever, llm, rag_chain, sentiment_chain, model, tokenizer
+
+    logger.info("LangChain RAG 시스템 초기화 중...")
+
+    # 1-4. 벡터 데이터베이스 설정 부분 (코드 유지)...
+    
+    # 5. EXAONE 모델 로드 부분 수정
+    model_name = "LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct"  # 또는 EXAONE-Deep-32B-AWQ
+    logger.info(f"{model_name} 모델 로드 중...")
+
+    # 토크나이저 로드
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_name,
+        trust_remote_code=True
+    )
+
+    # 모델 로드 - 성능 최적화 설정
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        torch_dtype=torch.bfloat16,  # 또는 torch.float16
+        device_map="auto",
+        trust_remote_code=True,
+        low_cpu_mem_usage=True
+    )
+
+    # 모델 최적화 설정 적용
+    optimize_performance(model)
+
+    # LangChain 용 커스텀 LLM 클래스 정의
+    from langchain.llms.base import LLM
+    from typing import Any, List, Mapping, Optional
+    
+    class CustomEXAONELLM(LLM):
+        model: Any
+        tokenizer: Any
+        
+        def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
+            messages = [{"role": "user", "content": prompt}]
+            input_ids = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=True,
+                add_generation_prompt=True,
+                return_tensors="pt"
+            ).to(model.device)
+            
+            with torch.no_grad():
+                output = self.model.generate(
+                    input_ids,
+                    eos_token_id=self.tokenizer.eos_token_id,
+                    max_new_tokens=800,  # 더 많은 토큰 생성
+                    do_sample=True,
+                    temperature=0.3,
+                    top_p=0.92,
+                    repetition_penalty=1.2,  # 반복 방지
+                )
+            
+            response = self.tokenizer.decode(output[0][input_ids.shape[1]:], skip_special_tokens=True)
+            
+            # 응답이 잘리는 문제를 방지하기 위한 후처리
+            response = self._clean_response(response)
+            
+            return response
+        
+        def _clean_response(self, text: str) -> str:
+            """응답 텍스트 정리"""
+            # 반복되는 패턴 제거 로직
+            pattern = r'1\.\s+'
+            matches = list(re.finditer(pattern, text))
+            
+            if len(matches) > 1:
+                # 첫 번째 1번 항목 이후의 텍스트만 유지
+                first_match_pos = matches[0].start()
+                second_match_pos = matches[1].start()
+                return text[:second_match_pos]
+            
+            return text
+        
+        @property
+        def _identifying_params(self) -> Mapping[str, Any]:
+            return {"model_name": "Custom EXAONE Model"}
+        
+        @property
+        def _llm_type(self) -> str:
+            return "custom_exaone"
+    
+    # LLM 인스턴스 생성
+    llm = CustomEXAONELLM(model=model, tokenizer=tokenizer)
+    
+    # 6. RAG 체인 및 감정 분석 체인 생성
+    rag_chain = create_multimodal_rag_chain(retriever, llm)
     sentiment_chain = create_sentiment_analysis_chain(llm)
 
     logger.info("LangChain RAG 시스템 초기화 완료!")
