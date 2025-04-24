@@ -660,7 +660,7 @@ def init_rag_system():
         tokenizer=tokenizer,
         max_new_tokens=300,
         do_sample=True,
-        temperature=0.2,
+        temperature=0.3,
         device_map="auto",
         eos_token_id=tokenizer.eos_token_id,
         pad_token_id=tokenizer.eos_token_id
