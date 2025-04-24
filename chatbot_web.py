@@ -590,12 +590,7 @@ def init_rag_system():
 
     logger.info("LangChain RAG 시스템 초기화 중...")
 
-    query_transformer_chain = (
-        {"question": RunnablePassthrough()}
-        | query_transformation_prompt
-        | llm
-        | StrOutputParser()
-    )
+    
 
     # 1. PDF 문서 로드 및 텍스트 추출
     documents = []
@@ -705,6 +700,13 @@ def init_rag_system():
     llm = HuggingFacePipeline(pipeline=hf_pipeline)
 
     logger.info("EXAONE 모델 로드 완료!")
+
+    query_transformer_chain = (
+        {"question": RunnablePassthrough()}
+        | query_transformation_prompt
+        | llm
+        | StrOutputParser()
+    )
 
     rag_chain = create_multimodal_rag_chain(retriever, llm)
 
