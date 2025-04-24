@@ -123,14 +123,23 @@ document_analysis_prompt = PromptTemplate.from_template(
     {context}
     
     위 문서에서 질문과 관련된 가장 중요한 정책/공약을 추출해주세요.
-    다음 규칙을 반드시 지켜주세요:
+    
+    # 중요 지시사항
+    - 만약 질문이 이전에 언급된 특정 번호 항목(예: "3번", "4번 항목")에 대한 상세 설명을 요청하는 경우,
+      다른 항목을 모두 무시하고 해당 항목만 심층적으로 분석하여 자세히 설명해주세요.
+    - 항목 설명 요청일 경우, 반드시 해당 항목의 키워드("청년고용보험", "구직급여" 등)를 활용하여 문서 내용을 검색하고
+      관련된 모든 세부 내용을 종합하여 설명해주세요.
+    - 항목 설명 요청일 경우, 일반적인 목록 형식이 아닌 상세한 설명 형식으로 답변해주세요.
+    
+    # 일반 정책 질문인 경우 규칙
     1. 정책/공약은 최대 10개까지만 추출하세요. 절대로 10개를 넘기지 마세요.
     2. 추출한 정책의 수가 10개 미만이라도 무리하게 채우지 마세요.
     3. 각 정책은 핵심 내용만 간결하게 작성하세요.
     4. 각 정책은 반드시 번호를 붙여 구분하고(1. 2. 3. 등), 정책별로 한 줄씩 띄워주세요.
     5. 마지막에 출처가 되는 공약의 page와 문서명을 반드시 표시하세요.
     6. 관련 정책이 없다면 "관련 정책 정보 없음"이라고만 답하세요.
-    7. 만약 질문이 이전에 언급된 항목에 대한 상세 설명 요청이라면, 해당 항목에 대해서만 심층적으로 설명해주세요.
+    
+    답변:
     
     답변:
     """
@@ -316,16 +325,60 @@ def create_multimodal_rag_chain(retriever, llm):
         logger.info(f"원본 질문: {original_question}")
         logger.info(f"최적화된 쿼리: {optimized_query}")
         
-        # 최적화된 쿼리로 검색
-        retrieved_docs = retriever.invoke(optimized_query)
+        # 특정 항목에 대한 상세 설명 요청인지 확인
+        item_request_match = re.search(r'([0-9]+)번째|([0-9]+)번|([0-9]+)항목|([0-9]+)번 항목', original_question)
+        is_item_request = bool(item_request_match)
+        
+        # 특정 항목 설명 요청일 경우 검색 방식 변경
+        if is_item_request:
+            # 이전 대화에서 항목 내용 찾기
+            if "BOT:" in original_question:
+                # 대화 내용에서 이전 BOT 응답 추출
+                bot_response = original_question.split("BOT:")[1].strip()
+                
+                # 요청된 항목 번호 추출
+                item_num = next(g for g in item_request_match.groups() if g is not None)
+                item_num = int(item_num)
+                
+                # 해당 항목의 내용 추출
+                items_pattern = r'([0-9]+)\.\s+(.+?)(?=\n\s*[0-9]+\.|$)'
+                items = re.findall(items_pattern, bot_response, re.DOTALL)
+                
+                if items and 0 < item_num <= len(items):
+                    # 항목 내용에서 키워드 추출
+                    item_content = items[item_num-1][1].strip()
+                    logger.info(f"상세 설명 요청된 항목 {item_num}번 내용: {item_content}")
+                    
+                    # 항목 내용을 키워드로 사용하여 검색 강화
+                    extra_keywords = re.sub(r'\([^)]*\)', '', item_content)  # 괄호 내용 제거
+                    keywords = ' '.join(re.findall(r'\b\w+\b', extra_keywords))
+                    
+                    # 최적화된 쿼리와 항목 키워드 결합
+                    enhanced_query = f"{optimized_query} {keywords}"
+                    logger.info(f"항목 내용 기반 강화된 쿼리: {enhanced_query}")
+                    
+                    # 강화된 쿼리로 검색
+                    retrieved_docs = retriever.invoke(enhanced_query)
+                else:
+                    # 항목을 찾지 못했을 경우 기본 쿼리 사용
+                    retrieved_docs = retriever.invoke(optimized_query)
+            else:
+                # 이전 대화 내용이 없을 경우 기본 쿼리 사용
+                retrieved_docs = retriever.invoke(optimized_query)
+        else:
+            # 일반 질문일 경우 기본 쿼리 사용
+            retrieved_docs = retriever.invoke(optimized_query)
         
         logger.info(f"검색된 문서 수: {len(retrieved_docs)}")
         if retrieved_docs:
             logger.info(f"첫 번째 문서 일부: {retrieved_docs[0].page_content[:100]}...")
         
+        # 특정 항목 설명 요청인지 여부를 컨텍스트에 포함
         return {
             "question": original_question,
-            "context": "\n\n".join([doc.page_content for doc in retrieved_docs])
+            "context": "\n\n".join([doc.page_content for doc in retrieved_docs]),
+            "is_item_request": is_item_request,
+            "item_number": item_num if is_item_request and 'item_num' in locals() else None
         }
     
     # 3. 문서 분석 체인
@@ -362,21 +415,8 @@ def format_response(question, analyzed_info):
     
     # 이전 대화 내용과 새 질문 분리
     clean_question = question
-    is_item_detail_request = False
-    requested_item_num = None
-    
     if "새로운 질문:" in question:
-        clean_question = question.split("새로운 질문:")[-1].strip().split("\n")[0]
-    
-    # 설명할 항목 번호 추출
-    if "설명할 항목 번호:" in question:
-        is_item_detail_request = True
-        item_line = [line for line in question.split("\n") if "설명할 항목 번호:" in line]
-        if item_line:
-            try:
-                requested_item_num = int(item_line[0].split("설명할 항목 번호:")[1].strip())
-            except:
-                pass
+        clean_question = question.split("새로운 질문:")[-1].strip()
     
     # 참조 항목 정보 제거
     if "(참조 항목:" in clean_question:
@@ -395,9 +435,14 @@ def format_response(question, analyzed_info):
     if "답변:" in analyzed_info:
         final_answer = analyzed_info.split("답변:")[1].strip()
     
-    # 특정 항목에 대한 상세 정보 요청인 경우 응답 형식 조정
-    if is_item_detail_request and requested_item_num:
-        response = f"🤖 {requested_item_num}번 항목에 대한 자세한 설명입니다.\n\n{final_answer}"
+    # 특정 항목 설명 요청인지 확인
+    is_item_request = bool(re.search(r'([0-9]+)번째|([0-9]+)번|([0-9]+)항목|([0-9]+)번 항목', clean_question))
+    
+    # 특정 항목 설명 요청인 경우 응답 형식 조정
+    if is_item_request:
+        item_match = re.search(r'([0-9]+)번째|([0-9]+)번|([0-9]+)항목|([0-9]+)번 항목', clean_question)
+        item_num = next(g for g in item_match.groups() if g is not None)
+        response = f"🤖 {item_num}번 항목에 대한 자세한 설명입니다.\n\n{final_answer}"
     else:
         # 일반 응답인 경우 기본 형식 사용
         response = f"🤖 {clean_question} 관련 답변드립니다.\n\n{final_answer}"
