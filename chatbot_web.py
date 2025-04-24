@@ -203,25 +203,23 @@ async def analyze_sentiment(text, sentiment_chain):
         result = sentiment_chain.invoke({"text": text})
         
         # 로그에 분석 결과 기록
-        logger.info(f"감정 분석 결과: '{result}' (원본 텍스트: '{text[:50]}...')")
+        logger.info(f"감정 분석 원본 결과: '{result}' (텍스트: '{text[:50]}...')")
         
-        # 정규 표현식을 사용하여 최종 결과 추출
-        # "결과:" 이후 또는 마지막 줄에서 "적절" 또는 "부적절" 찾기
-        match = re.search(r'결과:?\s*\*?\*?([^\*\n]+)\*?\*?', result, re.IGNORECASE)
-        if match:
-            final_result = match.group(1).strip()
+        # 단순화된 결과 추출: "적절" 또는 "부적절" 키워드를 찾음
+        is_inappropriate = False
+        
+        # 결과에서 마지막 50자만 검사 (최종 판단은 보통 마지막에 있음)
+        last_part = result[-50:] if len(result) > 50 else result
+        
+        if "부적절" in last_part:
+            is_inappropriate = True
+        elif "적절" in last_part:
+            is_inappropriate = False
         else:
-            # 결과: 패턴이 없으면 마지막 줄 확인
-            lines = result.strip().split('\n')
-            final_result = lines[-1].strip()
-            # 마지막 줄에서 별표 등 마크다운 형식 제거
-            final_result = re.sub(r'\*+', '', final_result).strip()
+            # 두 키워드가 모두 없으면 분석 실패로 간주, 기본값 사용
+            logger.warning(f"감정 분석 결과에서 판단 키워드를 찾을 수 없음: {last_part}")
+            is_inappropriate = False
         
-        # 최종 결과가 명확하게 "부적절"인지 확인
-        is_inappropriate = "부적절" == final_result
-        
-        # 디버깅을 위한 추가 로그
-        logger.info(f"추출된 최종 결과: '{final_result}'")
         logger.info(f"부적절 여부 판단: {is_inappropriate}")
         
         return is_inappropriate, result
@@ -257,13 +255,14 @@ conversation_history = {}
 
 # 대화 히스토리에 메시지 추가 함수
 def add_to_history(session_id, role, content):
+    """대화 히스토리에 메시지 추가"""
     if session_id not in conversation_history:
         conversation_history[session_id] = []
     
     conversation_history[session_id].append({
         "role": role,
         "content": content,
-        "timestamp": import_datetime().now().isoformat()
+        "timestamp": datetime.now().isoformat()  # datetime 직접 사용
     })
     
     # 히스토리 크기 제한 (최근 10개 메시지만 유지)
