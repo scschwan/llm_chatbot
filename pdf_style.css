@@ -1,0 +1,266 @@
+/* 기본 스타일 */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    font-family: 'Noto Sans KR', sans-serif;
+}
+
+body {
+    background-color: #f5f5f5;
+    padding: 20px;
+    color: #333;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    background-color: white;
+    border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    padding: 30px;
+}
+
+h1 {
+    text-align: center;
+    margin-bottom: 30px;
+    color: #333;
+    font-size: 28px;
+}
+
+h2 {
+    margin-bottom: 20px;
+    color: #444;
+    font-size: 22px;
+}
+
+h3 {
+    font-size: 16px;
+    margin-bottom: 5px;
+}
+
+p {
+    color: #666;
+    margin-bottom: 10px;
+    font-size: 14px;
+}
+
+/* 통합 파일 스타일 */
+.main-file {
+    background-color: #f8f9fa;
+    padding: 30px;
+    border-radius: 8px;
+    margin-bottom: 40px;
+    border: 1px solid #e0e0e0;
+    transition: all 0.3s ease;
+    text-align: center;
+}
+
+.main-file:hover {
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+.main-file-content {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.thumbnail-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.pdf-thumbnail {
+    width: 350px;
+    max-width: 100%;
+    height: auto;
+    border: 1px solid #ddd;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    border-radius: 3px;
+    transition: all 0.3s ease;
+    margin-bottom: 20px;
+}
+
+.pdf-thumbnail:hover {
+    transform: scale(1.02);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.15);
+}
+
+.main-file-button {
+    display: inline-flex;
+    align-items: center;
+    padding: 15px 30px;
+    background-color: #4285f4;
+    color: white;
+    border-radius: 5px;
+    text-decoration: none;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.main-file-button i {
+    margin-right: 10px;
+    font-size: 20px;
+}
+
+.main-file-button:hover {
+    background-color: #3367d6;
+    transform: translateY(-2px);
+}
+
+/* 개별 파일 스타일 */
+.individual-files {
+    margin-top: 20px;
+}
+
+.files-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+}
+
+.file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px;
+    border: 1px solid #e0e0e0;
+    border-radius: 5px;
+    background-color: #fff;
+    transition: all 0.3s ease;
+}
+
+.file-item:hover {
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+    border-color: #d0d0d0;
+}
+
+.file-info {
+    flex: 1;
+}
+
+.file-info h3 {
+    margin-bottom: 0;
+}
+
+.download-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    background-color: #34a853;
+    color: white;
+    border-radius: 50%;
+    text-decoration: none;
+    transition: all 0.3s ease;
+}
+
+.download-button:hover {
+    background-color: #2e8b57;
+    transform: scale(1.1);
+}
+
+.download-button i {
+    font-size: 16px;
+}
+
+/* 돌아가기 버튼 스타일 */
+.back-button-container {
+    margin-top: 40px;
+    text-align: center;
+}
+
+.back-button {
+    display: inline-flex;
+    align-items: center;
+    padding: 12px 25px;
+    background-color: #757575;
+    color: white;
+    border-radius: 5px;
+    text-decoration: none;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.back-button i {
+    margin-right: 8px;
+}
+
+.back-button:hover {
+    background-color: #616161;
+    transform: translateY(-2px);
+}
+
+/* 로딩 인디케이터 */
+.loading-indicator {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background-color: rgba(66, 133, 244, 0.9);
+    color: white;
+    padding: 20px;
+    border-radius: 8px;
+    z-index: 1000;
+}
+
+/* 오류 메시지 */
+.error-message {
+    background-color: #ffeeee;
+    color: #cc0000;
+    padding: 15px;
+    border-radius: 8px;
+    margin: 20px 0;
+    text-align: center;
+    border: 1px solid #ffcccc;
+}
+
+/* 반응형 스타일 */
+@media (max-width: 768px) {
+    .files-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .container {
+        padding: 20px;
+    }
+    
+    .main-file {
+        padding: 20px;
+    }
+    
+    .pdf-thumbnail {
+        width: 280px;
+    }
+    
+    .main-file-button {
+        padding: 12px 20px;
+    }
+}
+
+@media (max-width: 480px) {
+    h1 {
+        font-size: 24px;
+    }
+    
+    h2 {
+        font-size: 20px;
+    }
+    
+    .main-file-button {
+        padding: 10px 15px;
+        font-size: 14px;
+    }
+    
+    .file-item {
+        padding: 12px;
+    }
+    
+    .download-button {
+        width: 36px;
+        height: 36px;
+    }
+}
