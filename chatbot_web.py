@@ -13,7 +13,6 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import StreamingResponse
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
 from langchain_community.document_loaders import PyPDFLoader
@@ -578,19 +577,12 @@ def process_query_with_context(query, session_id):
     return query, None
 
 # init_rag_system 함수에 로그 추가
-# 전역 변수로 LangChain 구성요소 선언
-retriever = None
-llm = None
-rag_chain = None
-query_transformer_chain = None  # 추가된 부분
 
 def init_rag_system():
     """LangChain RAG 시스템 초기화"""
-    global retriever, llm, rag_chain ,sentiment_chain ,query_transformer_chain  
+    global retriever, llm, rag_chain ,sentiment_chain
 
     logger.info("LangChain RAG 시스템 초기화 중...")
-
-    
 
     # 1. PDF 문서 로드 및 텍스트 추출
     documents = []
@@ -692,21 +684,13 @@ def init_rag_system():
         temperature=0.3,
         device_map="auto",
         eos_token_id=tokenizer.eos_token_id,
-        pad_token_id=tokenizer.eos_token_id,
-        return_full_text=False    # 입력 프롬프트를 제외한 생성된 텍스트만 반환
+        pad_token_id=tokenizer.eos_token_id
     )
 
     # LangChain HuggingFacePipeline 래퍼 생성
     llm = HuggingFacePipeline(pipeline=hf_pipeline)
 
     logger.info("EXAONE 모델 로드 완료!")
-
-    query_transformer_chain = (
-        {"question": RunnablePassthrough()}
-        | query_transformation_prompt
-        | llm
-        | StrOutputParser()
-    )
 
     rag_chain = create_multimodal_rag_chain(retriever, llm)
 
@@ -715,77 +699,6 @@ def init_rag_system():
 
     logger.info("LangChain RAG 시스템 초기화 완료!")
     return True
-
-async def generate_streaming_response(contextual_query, session_id):
-    """RAG 체인에서 스트리밍 방식으로 응답을 생성하는 제너레이터 함수"""
-    global query_transformer_chain, retriever  # 전역 변수 사용 명시
-    try:
-        # 스트리밍 응답 시작 부분 전송
-        yield json.dumps({
-            "type": "start",
-            "session_id": session_id
-        }) + "\n"
-        
-        collected_response = ""
-        
-        # 기존 RAG 체인의 단계별 처리를 직접 구현
-        # 1단계: 쿼리 최적화
-        logger.info("쿼리 변환 중...")
-        optimized_query = query_transformer_chain.invoke(contextual_query)
-        
-        # 2단계: 문서 검색
-        logger.info(f"최적화된 쿼리로 문서 검색 중: {optimized_query}")
-        input_dict = {"original_question": contextual_query, "optimized_query": optimized_query}
-        retrieved_docs_dict = retrieve_documents(input_dict)
-        
-        # 3단계: 문서 분석 및 응답 생성
-        logger.info("문서 분석 및 응답 생성 중...")
-        
-        # 스트리밍 응답 설정
-        for token in document_analysis_prompt.format(
-            question=retrieved_docs_dict["question"],
-            context=retrieved_docs_dict["context"]
-        ).split():
-            # 각 토큰을 클라이언트에 전송
-            chunk = json.dumps({
-                "type": "token",
-                "content": token + " ",
-                "session_id": session_id
-            }) + "\n"
-            yield chunk
-            collected_response += token + " "
-        
-        # 최종 응답 포맷팅
-        final_response = format_response(
-            retrieved_docs_dict["question"], 
-            collected_response
-        )
-        
-        # 대화 히스토리에 저장 (스트리밍이 끝난 후)
-        user_message = contextual_query
-        if "새로운 질문:" in contextual_query:
-            user_message = contextual_query.split("새로운 질문:")[-1].strip()
-        
-        add_to_history(session_id, "user", user_message)
-        add_to_history(session_id, "assistant", final_response)
-        
-        # 스트리밍 응답 종료 부분 전송
-        yield json.dumps({
-            "type": "end",
-            "content": final_response,
-            "session_id": session_id
-        }) + "\n"
-        
-    except Exception as e:
-        logger.error(f"스트리밍 응답 생성 중 오류 발생: {str(e)}", exc_info=True)
-        error_response = "죄송합니다. 요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
-        
-        yield json.dumps({
-            "type": "error",
-            "content": error_response,
-            "session_id": session_id,
-            "error": str(e)
-        }) + "\n"
 
 def optimize_performance(model):
     """성능 최적화 설정 적용"""
@@ -876,7 +789,6 @@ async def create_comment(comment: Comment):
         raise HTTPException(status_code=500, detail=str(e))
 
 # 웹 채팅 API 엔드포인트
-# 웹 채팅 API 엔드포인트 (스트리밍 지원)
 @app.post('/api/chat')
 async def chat_endpoint(request: Request):
     global rag_chain, sentiment_chain
@@ -885,8 +797,7 @@ async def chat_endpoint(request: Request):
     req_data = await request.json()
     user_message = req_data.get('message', '')
     session_id = req_data.get('session_id', 'default')
-    debug_mode = req_data.get('debug_mode', False)
-    stream_mode = req_data.get('stream_mode', True)  # 스트리밍 모드 플래그, 기본값은 True
+    debug_mode = req_data.get('debug_mode', False)  # 디버그 모드 플래그 추가
     
     logger.info(f"세션 {session_id}에서 새로운 메시지 수신: {user_message[:30]}..." if len(user_message) > 30 else user_message)
     
@@ -931,30 +842,21 @@ async def chat_endpoint(request: Request):
                 })
             return JSONResponse({"response": response})
         
-        # 컨텍스트 및 질의 준비 (이전 대화 + 새 질문)
+        # 1. 컨텍스트 및 질의 준비 (이전 대화 + 새 질문)
         contextual_query = prepare_contextual_message(user_message, session_id)
         
-        # 스트리밍 모드일 경우
-        if stream_mode:
-            # 스트리밍 응답 반환
-            return StreamingResponse(
-                generate_streaming_response(contextual_query, session_id),
-                media_type="application/x-ndjson"
-            )
-        # 일반 모드일 경우 (기존 방식)
-        else:
-            # RAG 체인으로 응답 생성
-            logger.info("RAG 체인으로 응답 생성 중...")
-            response = rag_chain.invoke(contextual_query)
-            
-            # 대화 히스토리에 저장 (원본 질문과 응답)
-            add_to_history(session_id, "user", user_message)
-            add_to_history(session_id, "assistant", response)
-            
-            return JSONResponse({
-                "response": response,
-                "session_id": session_id
-            })
+        # 2. RAG 체인으로 응답 생성
+        logger.info("RAG 체인으로 응답 생성 중...")
+        response = rag_chain.invoke(contextual_query)
+        
+        # 3. 대화 히스토리에 저장 (원본 질문과 응답)
+        add_to_history(session_id, "user", user_message)
+        add_to_history(session_id, "assistant", response)
+        
+        return JSONResponse({
+            "response": response,
+            "session_id": session_id
+        })
     except Exception as e:
         logger.error(f"요청 처리 중 오류 발생: {str(e)}", exc_info=True)
         return JSONResponse({
