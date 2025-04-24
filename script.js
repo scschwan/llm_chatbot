@@ -24,6 +24,42 @@ document.addEventListener('DOMContentLoaded', () => {
     // 전송 버튼 클릭으로 메시지 전송
     sendButton.addEventListener('click', sendMessage);
 
+    // 세션 ID 생성 함수
+    function generateSessionId() {
+        return 'session_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    }
+
+    // 메시지 제거 함수
+    function removeMessage(messageId) {
+        const messageElement = document.getElementById(messageId);
+        if (messageElement) {
+            messageElement.remove();
+        }
+    }
+
+    // 메시지 추가 함수
+    function addMessage(text, sender, isError = false) {
+        const messageElement = document.createElement('div');
+        
+        // 고유 ID 생성
+        const messageId = 'msg_' + Math.random().toString(36).substring(2, 9);
+        messageElement.id = messageId;
+        
+        if (isError) {
+            messageElement.className = 'message error-message';
+        } else {
+            messageElement.className = `message ${sender}-message`;
+        }
+        
+        // 텍스트에 줄바꿈이 있으면 HTML에서도 줄바꿈 처리
+        messageElement.innerHTML = text.replace(/\n/g, '<br>');
+        messagesContainer.appendChild(messageElement);
+        scrollToBottom();
+        
+        // 메시지 ID 반환
+        return messageId;
+    }
+
     // 메시지 전송 함수
     async function sendMessage() {
         const userMessage = document.getElementById('message-input').value.trim();
