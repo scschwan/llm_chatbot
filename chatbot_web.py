@@ -374,9 +374,14 @@ def format_response(question, analyzed_info):
         logger.info(f" analyzed_info[-30:] : {analyzed_info[-30:]}")
         return f"🤖 {clean_question}에 관한 정책 정보를 찾을 수 없습니다. 다른 질문으로 시도해 보세요."
     
+     # '답변:' 이후 내용만 추출
+    final_answer = analyzed_info
+    if "답변:" in analyzed_info:
+        final_answer = analyzed_info.split("답변:")[1].strip()
+
     # LLM이 생성한 응답을 그대로 사용 (자체 포맷팅은 제거)
     # 헤더만 추가
-    response = f"🤖 {clean_question} 관련 답변드립니다.\n\n{analyzed_info}"
+    response = f"🤖 {clean_question} 관련 답변드립니다.\n\n{final_answer}"
     
     # 로그에 최종 응답 기록
     logger.info(f"최종 응답: {response}...")
