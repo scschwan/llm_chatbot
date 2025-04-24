@@ -130,18 +130,20 @@ sentiment_analysis_prompt = PromptTemplate.from_template(
     
     텍스트: {text}
     
-    이 텍스트가 다음 중 하나라도 포함하면 "부적절"이라고 답하세요:
-    1. 비속어나 욕설
-    2. 성적으로 부적절한 내용
-    3. 혐오 표현이나 차별적 언어
-    4. 위협적이거나 폭력적인 내용
-    5. 개인정보 요청
-    6. 불법적인 활동 관련 내용
-    7. 정치적 비방이나 인신공격
+    이 텍스트가 다음 중 하나라도 명확하게 포함하는 경우에만 "부적절"이라고 답하세요:
+    1. 직접적인 비속어나 욕설
+    2. 명백히 성적으로 부적절한 내용
+    3. 특정 집단을 향한 혐오 표현이나 차별적 언어
+    4. 직접적인 위협이나 폭력적인 내용
+    5. 개인정보 요청이나 유출
+    6. 명백히 불법적인 활동 유도
+    7. 특정 정치인이나 개인에 대한 심한 비방이나 인신공격
     
-    그렇지 않다면 "적절"이라고 답하세요.
+    일반적인 질문, 정책 문의, 중립적 의견, 단순한 부정적 의견 표현 등은 "적절"로 분류하세요.
+    정치적 주제나 비판적 질문이라도 예의를 갖추고 있다면 "적절"로 분류하세요.
+    의도가 불분명하거나 맥락이 불충분하다면 "적절"로 분류하세요.
     
-    결과:
+    결과(정확히 "적절" 또는 "부적절" 중 하나만 답변):
     """
 )
 
@@ -197,13 +199,23 @@ def create_sentiment_analysis_chain(llm):
 async def analyze_sentiment(text, sentiment_chain):
     """텍스트의 감정과 의도를 분석하여 적절성 판단"""
     try:
+        # 분석 결과 가져오기
         result = sentiment_chain.invoke({"text": text})
+        
+        # 로그에 분석 결과 기록
+        logger.info(f"감정 분석 결과: '{result}' (원본 텍스트: '{text[:50]}...')")
+        
         # 결과에 "부적절"이 포함되어 있으면 부적절한 것으로 판단
-        return "부적절" in result.lower()
+        is_inappropriate = "부적절" in result.lower()
+        
+        # 디버깅을 위한 추가 로그
+        logger.info(f"부적절 여부 판단: {is_inappropriate}")
+        
+        return is_inappropriate, result  # 판단 결과와 원본 분석 결과 함께 반환
     except Exception as e:
-        logger.info(f"감정 분석 중 오류 발생: {str(e)}")
-        # 오류 발생 시는 안전하게 False 반환
-        return False
+        logger.error(f"감정 분석 중 오류 발생: {str(e)}")
+        # 오류 발생 시는 안전하게 False 반환하고 오류 메시지 포함
+        return False, f"오류: {str(e)}"
     
 # 금지어 목록
 prohibited_words = [
@@ -521,20 +533,49 @@ async def chat_endpoint(request: Request):
     req_data = await request.json()
     user_message = req_data.get('message', '')
     session_id = req_data.get('session_id', 'default')
+    debug_mode = req_data.get('debug_mode', False)  # 디버그 모드 플래그 추가
+    
+    logger.info(f"세션 {session_id}에서 새로운 메시지 수신: {user_message[:30]}..." if len(user_message) > 30 else user_message)
     
     if not user_message:
+        logger.warning("빈 메시지가 전송됨")
         return JSONResponse({"response": "메시지를 입력해주세요."})
     
     try:
+        sentiment_debug_info = {}  # 감정 분석 디버그 정보
+        
         # 1단계: 기본 금지어 필터링
         if contains_prohibited_content(user_message):
-            response = "죄송합니다1. 부적절한 언어나 개인정보가 포함된 질문에는 답변할 수 없습니다."
+            logger.warning(f"금지어 필터링 - 부적절한 내용 감지: {user_message[:30]}...")
+            response = "죄송합니다. 부적절한 언어나 개인정보가 포함된 질문에는 답변할 수 없습니다."
+            sentiment_debug_info["filter_type"] = "prohibited_words"
+            
+            if debug_mode:
+                return JSONResponse({
+                    "response": response,
+                    "debug_info": sentiment_debug_info
+                })
             return JSONResponse({"response": response})
         
         # 2단계: 감정 분석을 통한 부정적 어휘 필터링
-        is_inappropriate = await analyze_sentiment(user_message, sentiment_chain)
+        is_inappropriate, analysis_result = await analyze_sentiment(user_message, sentiment_chain)
+        
+        # 디버그 정보 저장
+        sentiment_debug_info = {
+            "analysis_result": analysis_result,
+            "is_inappropriate": is_inappropriate
+        }
+        
         if is_inappropriate:
-            response = "죄송합니다2. 부적절하거나 부정적인 내용이 포함된 질문에는 답변할 수 없습니다."
+            logger.warning(f"감정 분석 필터링 - 부정적 내용 감지: {user_message[:30]}...")
+            response = "죄송합니다. 부적절하거나 부정적인 내용이 포함된 질문에는 답변할 수 없습니다."
+            sentiment_debug_info["filter_type"] = "sentiment_analysis"
+            
+            if debug_mode:
+                return JSONResponse({
+                    "response": response,
+                    "debug_info": sentiment_debug_info
+                })
             return JSONResponse({"response": response})
         
         # 사용자 메시지를 히스토리에 추가
@@ -544,21 +585,36 @@ async def chat_endpoint(request: Request):
         context = get_conversation_context(session_id)
         
         # 컨텍스트와 함께 RAG 체인으로 응답 생성
+        logger.info("RAG 체인으로 응답 생성 중...")
+        start_time = datetime.now()
+        
         contextual_message = f"{context}새로운 질문: {user_message}"
         response = rag_chain.invoke(contextual_message)
         
+        processing_time = (datetime.now() - start_time).total_seconds()
+        logger.info(f"응답 생성 완료 (처리 시간: {processing_time:.2f}초)")
+        
         # 챗봇 응답을 히스토리에 추가
         add_to_history(session_id, "assistant", response)
+        
+        if debug_mode:
+            return JSONResponse({
+                "response": response,
+                "session_id": session_id,
+                "debug_info": sentiment_debug_info,
+                "processing_time_seconds": processing_time
+            })
         
         return JSONResponse({
             "response": response,
             "session_id": session_id
         })
     except Exception as e:
-        logger.info(f"Error processing request: {str(e)}")
+        logger.error(f"요청 처리 중 오류 발생: {str(e)}", exc_info=True)
         return JSONResponse({
-            "response": "죄송합니다. 요청 처리 중 오류가 발생했습니다.",
-            "session_id": session_id
+            "response": "죄송합니다. 요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
+            "session_id": session_id,
+            "error": str(e) if debug_mode else None
         })
 
 # 서버 초기화 및 실행을 위한 이벤트
