@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>💌 응원메시지 보내기</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Arial', sans-serif;
+        }
+
+        body {
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: #fff;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+        }
+
+        .chat-input {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            position: sticky;
+            top: 0;
+            background-color: #fff;
+            padding: 15px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .chat-input input {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+
+        .chat-input button {
+            padding: 12px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        .chat-input button:hover {
+            background-color: #3e8e41;
+        }
+
+        .comment-list {
+            margin-top: 20px;
+        }
+
+        .comment {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+            margin-bottom: 10px;
+        }
+
+        .comment-text {
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+
+        .comment-actions {
+            display: flex;
+            gap: 15px;
+        }
+
+        .action-button {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            background: none;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .action-button i {
+            font-size: 16px;
+        }
+
+        .like-button:hover {
+            color: #4CAF50;
+        }
+
+        .dislike-button:hover {
+            color: #f44336;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="chat-input">
+            <input type="text" id="chat-message" placeholder="메시지를 입력하세요">
+            <button id="send-button">전송</button>
+        </div>
+        <div class="comment-list" id="comment-list">
+            <!-- 댓글들이 여기에 추가됩니다 -->
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const chatInput = document.getElementById('chat-message');
+            const sendButton = document.getElementById('send-button');
+            const commentList = document.getElementById('comment-list');
+
+            // 페이지 로드 시 기존 댓글 불러오기
+            fetchComments();
+
+            // 전송 버튼 클릭 이벤트
+            sendButton.addEventListener('click', sendMessage);
+            
+            // Enter 키 누를 때 메시지 전송
+            chatInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+
+            // 메시지 전송 함수
+            function sendMessage() {
+                const message = chatInput.value.trim();
+                if (message) {
+                    // API 호출하여 메시지 저장
+                    fetch('/api/comments', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ text: message })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            // 성공적으로 저장된 경우 댓글 목록 갱신
+                            fetchComments();
+                            chatInput.value = '';
+                        } else {
+                            alert('메시지 저장에 실패했습니다.');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('오류가 발생했습니다.');
+                    });
+                }
+            }
+
+            // 댓글 목록 가져오기
+            function fetchComments() {
+                fetch('/api/comments')
+                .then(response => response.json())
+                .then(data => {
+                    commentList.innerHTML = '';
+                    data.comments.forEach(comment => {
+                        const commentElement = createCommentElement(comment);
+                        commentList.appendChild(commentElement);
+                    });
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                });
+            }
+
+            // 댓글 요소 생성
+            function createCommentElement(comment) {
+                const commentDiv = document.createElement('div');
+                commentDiv.className = 'comment';
+                
+                const commentText = document.createElement('div');
+                commentText.className = 'comment-text';
+                commentText.textContent = comment.text;
+                
+                const actionsDiv = document.createElement('div');
+                actionsDiv.className = 'comment-actions';
+                
+                const likeButton = document.createElement('button');
+                likeButton.className = 'action-button like-button';
+                likeButton.innerHTML = '<i class="fas fa-thumbs-up"></i> 좋아요';
+                
+                const dislikeButton = document.createElement('button');
+                dislikeButton.className = 'action-button dislike-button';
+                dislikeButton.innerHTML = '<i class="fas fa-thumbs-down"></i> 싫어요';
+                
+                actionsDiv.appendChild(likeButton);
+                actionsDiv.appendChild(dislikeButton);
+                
+                commentDiv.appendChild(commentText);
+                commentDiv.appendChild(actionsDiv);
+                
+                return commentDiv;
+            }
+        });
+    </script>
+</body>
+</html>

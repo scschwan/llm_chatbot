@@ -368,56 +368,17 @@ def format_response(question, analyzed_info):
     
     logger.info(f"정제된 질문: {clean_question}")
     
-    # 분석된 정보에서 정책 추출
-    # 방법 1: 분석된 정보에서 번호가 있는 라인만 추출
-    policies = []
-    pattern = re.compile(r'^\s*(\d+)\.\s+(.+)$', re.MULTILINE)
-    matches = pattern.findall(analyzed_info)
-    
-    if matches:
-        for num, content in matches:
-            policies.append(content.strip())
-    else:
-        # 방법 2: 줄 단위로 처리
-        lines = analyzed_info.split('\n')
-        current_policy = None
-        
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-                
-            # 새 정책 항목 시작
-            if re.match(r'^\d+\.', line) or line.startswith('•') or line.startswith('-'):
-                if current_policy:
-                    policies.append(current_policy)
-                current_policy = line
-            elif current_policy:
-                current_policy += " " + line
-        
-        # 마지막 정책 추가
-        if current_policy:
-            policies.append(current_policy)
-    
-    # 정책이 없거나 "관련 정책 정보 없음"이 포함된 경우
-    if not policies or "관련 정책 정보 없음" in analyzed_info:
+    # 응답에 "관련 정책 정보 없음"이 명시적으로 포함된 경우에만 정보 없음으로 처리
+    if "관련 정책 정보 없음" in analyzed_info:
         logger.info("관련 정책 정보가 없음")
         return f"🤖 {clean_question}에 관한 정책 정보를 찾을 수 없습니다. 다른 질문으로 시도해 보세요."
     
-    # 정책 수를 최대 10개로 제한
-    policies = policies[:10]
-    logger.info(f"추출된 정책 수: {len(policies)}")
-    
-    # 응답 구성 (간결하게)
-    response = f"🤖 {clean_question} 관련 답변드립니다.\n\n"
-    
-    for i, policy in enumerate(policies, 1):
-        # 번호 중복 방지 (이미 번호가 있는 경우 제거)
-        policy_text = re.sub(r'^\d+\.\s*', '', policy)
-        response += f"{i}. {policy_text}\n\n"
+    # LLM이 생성한 응답을 그대로 사용 (자체 포맷팅은 제거)
+    # 헤더만 추가
+    response = f"🤖 {clean_question} 관련 답변드립니다.\n\n{analyzed_info}"
     
     # 로그에 최종 응답 기록
-    logger.info(f"최종 응답: {response[:200]}...")
+    logger.info(f"최종 응답: {response}...")
     
     return response
 
