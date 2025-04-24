@@ -850,8 +850,8 @@ async def chat_endpoint(request: Request):
         response = rag_chain.invoke(contextual_query)
         
         # 3. 대화 히스토리에 저장 (원본 질문과 응답)
-        add_to_history(session_id, "user", user_message)
-        add_to_history(session_id, "assistant", response)
+        #add_to_history(session_id, "user", user_message)
+        #add_to_history(session_id, "assistant", response)
         
         return JSONResponse({
             "response": response,
