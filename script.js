@@ -26,12 +26,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 메시지 전송 함수
     async function sendMessage() {
-        const userMessage = document.getElementById('user-input').value.trim();
+        const userMessage = document.getElementById('message-input').value.trim();
         if (!userMessage) return;
         
         // 사용자 메시지 UI에 추가
         addMessage(userMessage, 'user');
-        document.getElementById('user-input').value = '';
+        document.getElementById('message-input').value = '';
         
         // 응답 대기 중 표시
         const waitingId = addMessage('...', 'assistant');
@@ -127,7 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         return formatted;
     }
-    
+
     // 메시지 추가 함수
     function addMessage(text, sender, isError = false) {
         const messageElement = document.createElement('div');
