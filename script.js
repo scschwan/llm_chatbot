@@ -25,39 +25,109 @@ document.addEventListener('DOMContentLoaded', () => {
     sendButton.addEventListener('click', sendMessage);
 
     // 메시지 전송 함수
-    function sendMessage() {
-        const message = messageInput.value.trim();
+    async function sendMessage() {
+        const userMessage = document.getElementById('user-input').value.trim();
+        if (!userMessage) return;
         
-        if (message && !isWaitingForResponse) {
-            // 사용자 메시지 추가
-            addMessage(message, 'user');
+        // 사용자 메시지 UI에 추가
+        addMessage(userMessage, 'user');
+        document.getElementById('user-input').value = '';
+        
+        // 응답 대기 중 표시
+        const waitingId = addMessage('...', 'assistant');
+        
+        try {
+            // 세션 ID는 브라우저에 저장
+            const sessionId = localStorage.getItem('session_id') || generateSessionId();
+            localStorage.setItem('session_id', sessionId);
             
-            // 입력 필드 초기화
-            messageInput.value = '';
-            messageInput.style.height = '50px';
+            // 채팅 API 호출 (스트리밍 방식)
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message: userMessage,
+                    session_id: sessionId,
+                    stream_mode: true  // 스트리밍 모드 활성화
+                })
+            });
             
-            // 로딩 표시 추가
-            const loadingElement = document.createElement('div');
-            loadingElement.className = 'loading';
-            loadingElement.innerHTML = `
-                <div class="loading-dots">
-                    <div class="loading-dot"></div>
-                    <div class="loading-dot"></div>
-                    <div class="loading-dot"></div>
-                </div>
-            `;
-            messagesContainer.appendChild(loadingElement);
-            scrollToBottom();
+            // 응답 형식 확인
+            const contentType = response.headers.get('content-type');
             
-            // 입력 상태 업데이트
-            isWaitingForResponse = true;
-            sendButton.disabled = true;
-            
-            // 서버와 통신
-            sendToServer(message, loadingElement);
+            // 스트리밍 응답 처리
+            if (contentType && contentType.includes('application/x-ndjson')) {
+                // 대기 메시지 제거
+                removeMessage(waitingId);
+                
+                // 스트리밍 응답을 위한 새 메시지 요소 생성
+                const streamId = addMessage('', 'assistant');
+                const messageElement = document.getElementById(streamId);
+                
+                // 스트림 리더 생성
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                
+                let streamedText = '';
+                
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    
+                    // 청크 디코딩
+                    const chunk = decoder.decode(value, { stream: true });
+                    
+                    // 각 라인 처리
+                    chunk.split('\n').filter(line => line.trim()).forEach(line => {
+                        try {
+                            const data = JSON.parse(line);
+                            
+                            if (data.type === 'token') {
+                                // 토큰 추가
+                                streamedText += data.content;
+                                messageElement.innerHTML = formatMessage(streamedText);
+                            } else if (data.type === 'end') {
+                                // 스트리밍 완료, 최종 메시지로 업데이트
+                                messageElement.innerHTML = formatMessage(data.content);
+                            } else if (data.type === 'error') {
+                                // 오류 메시지 표시
+                                messageElement.innerHTML = formatMessage(data.content);
+                                messageElement.classList.add('error-message');
+                            }
+                        } catch (e) {
+                            console.error('Invalid JSON chunk:', line, e);
+                        }
+                    });
+                }
+            } else {
+                // 기존 방식의 응답 처리 (스트리밍 아닌 경우)
+                const data = await response.json();
+                removeMessage(waitingId);
+                addMessage(data.response, 'assistant');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            removeMessage(waitingId);
+            addMessage('죄송합니다. 요청 처리 중 오류가 발생했습니다.', 'assistant');
         }
     }
 
+
+    function formatMessage(text) {
+        // HTML 이스케이핑 처리
+        let formatted = text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+        
+        // 줄바꿈 처리
+        formatted = formatted.replace(/\n/g, '<br>');
+        
+        // 추가적인 포맷팅 규칙 적용 가능
+        
+        return formatted;
+    }
+    
     // 메시지 추가 함수
     function addMessage(text, sender, isError = false) {
         const messageElement = document.createElement('div');
