@@ -262,7 +262,7 @@ def add_to_history(session_id, role, content):
     conversation_history[session_id].append({
         "role": role,
         "content": content,
-        "timestamp": datetime.now().isoformat()  # datetime 직접 사용
+        "timestamp": datetime.now().isoformat()  # import_datetime 대신 직접 datetime 사용
     })
     
     # 히스토리 크기 제한 (최근 10개 메시지만 유지)
