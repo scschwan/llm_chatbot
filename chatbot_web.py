@@ -231,7 +231,7 @@ async def analyze_sentiment(text, sentiment_chain):
 prohibited_words = [
     "씨발", "병신", "개새끼", "지랄", "좆", "니미", "fuck", "sex", "bastard", "bitch",
     "개자식", "걸레", "창녀", "쌍놈", "쌍년", "애미", "애비", 
-    "전화번호", "주민번호", "계좌번호", "신용카드", "클라우드", "cloud"
+    "전화번호", "주민번호", "계좌번호", "신용카드", "범죄자", "쓰레기"
 ]
 
 def contains_prohibited_content(text):
@@ -271,16 +271,17 @@ def add_to_history(session_id, role, content):
 
 # 이전 대화 내용을 기반으로 컨텍스트 생성
 def get_conversation_context(session_id):
-    """이전 대화 내용을 기반으로 컨텍스트 생성"""
+    """이전 대화 내용을 기반으로 컨텍스트 생성 - 내부 처리용으로만 사용하고 응답에는 포함하지 않음"""
     if session_id not in conversation_history or len(conversation_history[session_id]) == 0:
         return ""
     
-    # 최근 메시지 2쌍(사용자+챗봇)만 사용
+    # 최근 메시지 2쌍(질문+답변)만 사용
     recent_messages = conversation_history[session_id][-4:] if len(conversation_history[session_id]) >= 4 else conversation_history[session_id]
     
-    context = "이전 대화 내용:\n"
+    # 내부 처리용 컨텍스트 생성 (프롬프트에 전달되지만 사용자에게는 표시되지 않음)
+    context = ""
     for message in recent_messages:
-        role_text = "사용자" if message["role"] == "user" else "챗봇"
+        role_text = "USER" if message["role"] == "user" else "BOT"
         context += f"{role_text}: {message['content']}\n"
     
     return context
@@ -347,6 +348,10 @@ def format_response(question, analyzed_info):
     logger.info(f"질문: {question}")
     logger.info(f"분석된 정보: {analyzed_info}")
     
+    # 새 질문 부분만 추출 (이전 대화 내용 제거)
+    if "새로운 질문:" in question:
+        question = question.split("새로운 질문:")[-1].strip()
+    
     # analyzed_info에서 정책 정보 추출
     policies = []
     
@@ -382,12 +387,52 @@ def format_response(question, analyzed_info):
         logger.info("관련 정책 정보가 없음")
         return f"🤖 {question} 관련 답변드립니다.\n\n죄송합니다. 요청하신 '{question}'에 관한 정책 정보를 찾을 수 없습니다. 다른 질문으로 시도해 보세요."
     
-    # 응답 구성 (최대 10개 정책만 표시)
+    # 응답 구성 (헤더 단순화)
     response = f"🤖 {question} 관련 답변드립니다.\n\n"
     for i, policy in enumerate(policies, 1):
         response += f"{i}. {policy}\n\n"
     
     return response
+
+# 개선된 질의 처리를 위한 함수
+def process_query_with_context(query, session_id):
+    """컨텍스트를 고려한 질의 처리"""
+    if session_id not in conversation_history or len(conversation_history[session_id]) == 0:
+        return query, None
+    
+    # 최근 챗봇 응답 찾기
+    latest_bot_response = None
+    for msg in reversed(conversation_history[session_id]):
+        if msg["role"] == "assistant":
+            latest_bot_response = msg["content"]
+            break
+    
+    if not latest_bot_response:
+        return query, None
+    
+    # 항목 번호 추출 시도
+    item_match = re.search(r'([0-9]+)번째|([0-9]+)번|([0-9]+)항목|([0-9]+)번 항목', query)
+    if item_match:
+        # 숫자 추출
+        item_num = next(g for g in item_match.groups() if g is not None)
+        item_num = int(item_num)
+        logger.info(f"항목 번호 추출됨: {item_num}")
+        
+        # 이전 응답에서 항목 패턴 추출
+        try:
+            # 항목 패턴 (숫자. 내용) 찾기
+            items = re.findall(r'([0-9]+)\.\s+(.+?)(?=\n\n[0-9]+\.|\n\n$|$)', latest_bot_response, re.DOTALL)
+            if items and 0 < item_num <= len(items):
+                # 찾은 항목의 내용
+                item_content = items[item_num - 1][1].strip()
+                logger.info(f"찾은 항목 내용: {item_content}")
+                
+                # 응답에서 해당 항목 내용이 언급되도록 원본 질의 반환 + 항목 내용 반환
+                return query, item_content
+        except Exception as e:
+            logger.error(f"항목 추출 오류: {str(e)}")
+    
+    return query, None
 
 # init_rag_system 함수에 로그 추가
 def init_rag_system():
@@ -599,43 +644,30 @@ async def chat_endpoint(request: Request):
         # 사용자 메시지를 히스토리에 추가
         add_to_history(session_id, "user", user_message)
         
-        # 이전 대화 내용 컨텍스트 가져오기
+        # 항목 번호 참조 처리
+        processed_query, referenced_item = process_query_with_context(user_message, session_id)
+        
+        # 내부 처리용 컨텍스트 가져오기 (이전 대화)
         context = get_conversation_context(session_id)
-        logger.info(f"대화 컨텍스트: {context}")
         
         # 컨텍스트와 함께 RAG 체인으로 응답 생성
         logger.info("RAG 체인으로 응답 생성 중...")
         start_time = datetime.now()
         
-        # 컨텍스트가 있으면 새 질문과 결합
-        if context:
-            # 새 질문을 명확하게 구분
-            contextual_message = f"{context}\n새로운 질문: {user_message}"
+         # RAG 체인에 전달할 메시지 생성
+        if referenced_item:
+            # 참조된 항목이 있으면 이를 포함
+            contextual_message = f"{context}새로운 질문: {processed_query} (참조 항목: {referenced_item})"
         else:
-            contextual_message = user_message
+            contextual_message = f"{context}새로운 질문: {processed_query}"
         
         logger.info(f"RAG 체인에 전달되는 최종 메시지: {contextual_message}")
         
         # RAG 체인으로 응답 생성
         response = rag_chain.invoke(contextual_message)
         
-        # 사용자 메시지와 챗봇 응답을 히스토리에 추가 (응답 생성 후에 추가)
-        add_to_history(session_id, "user", user_message)
-        add_to_history(session_id, "assistant", response)
-        
-        processing_time = (datetime.now() - start_time).total_seconds()
-        logger.info(f"응답 생성 완료 (처리 시간: {processing_time:.2f}초)")
-        
         # 챗봇 응답을 히스토리에 추가
-        #add_to_history(session_id, "assistant", response)
-        
-        if debug_mode:
-            return JSONResponse({
-                "response": response,
-                "session_id": session_id,
-                "debug_info": sentiment_debug_info,
-                "processing_time_seconds": processing_time
-            })
+        add_to_history(session_id, "assistant", response)
         
         return JSONResponse({
             "response": response,
