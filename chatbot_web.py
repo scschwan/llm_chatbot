@@ -429,12 +429,16 @@ def format_response(question, analyzed_info):
     # 정책 자료 다운로드 요청인 경우 다운로드 링크 제공
     if is_download_request:
         download_links = (
-            "🤖 정책 자료를 다운로드할 수 있는 링크를 제공해 드립니다:\n\n"
-            "1. [정책공약집 다운로드](/static/pdfs/full.pdf)\n"
-            "2. [지역공약집 다운로드](/static/pdfs/region_document.pdf)\n\n"
-            "위 링크를 클릭하여 PDF 파일을 다운로드하거나 확인하실 수 있습니다. "
-            "추가로 궁금하신 내용이 있으시면 말씀해 주세요."
-        )
+                "🤖 정책 자료를 다운로드할 수 있는 링크를 제공해 드립니다:<br><br>"
+                "<div style='display: flex; gap: 10px; flex-wrap: wrap;'>"
+                "<a href='/static/pdfs/full.pdf' style='padding: 10px 20px; background-color: #0078d4; color: white; text-decoration: none; border-radius: 4px; margin-bottom: 10px;' target='_blank'>정책공약집 다운로드</a>"
+                "<a href='/static/pdfs/region_document.pdf' style='padding: 10px 20px; background-color: #0078d4; color: white; text-decoration: none; border-radius: 4px; margin-bottom: 10px;' target='_blank'>지역공약집 다운로드</a>"
+                "</div><br>"
+                "위 버튼을 클릭하여 PDF 파일을 다운로드하거나 확인하실 수 있습니다.<br><br>"
+                "세부 자료를 확인하고 싶으시다면 공약정책 페이지로 이동하실 수 있습니다:<br><br>"
+                "<a href='/pdf' style='padding: 10px 20px; background-color: #5cb85c; color: white; text-decoration: none; border-radius: 4px; display: inline-block;'>공약정책 페이지 이동</a><br><br>"
+                "추가로 궁금하신 내용이 있으시면 말씀해 주세요."
+            )
         return download_links
     
     # 응답에 "관련 정책 정보 없음"이 명시적으로 포함된 경우에만 정보 없음으로 처리
