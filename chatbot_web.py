@@ -1,4 +1,7 @@
+import logging
 import os
+from logging.handlers import RotatingFileHandler
+from datetime import datetime
 import re
 import json
 import torch
@@ -20,8 +23,6 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 
 app = FastAPI()
-
-#변경사항 수정22
 
 # Enable CORS
 app.add_middleware(
@@ -144,6 +145,45 @@ sentiment_analysis_prompt = PromptTemplate.from_template(
     """
 )
 
+# 로깅 설정 함수
+def setup_logging():
+    """로깅 시스템 설정"""
+    # 로그 디렉토리 생성
+    log_dir = os.path.join(BASE_DIR, "logs")
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    
+    # 로그 파일 이름 (날짜 포함)
+    log_filename = os.path.join(log_dir, f"chatbot_{datetime.now().strftime('%Y-%m-%d')}.log")
+    
+    # 로거 설정
+    logger = logging.getLogger("chatbot")
+    logger.setLevel(logging.INFO)
+    
+    # 파일 핸들러 설정 (10MB 크기 제한, 최대 5개 백업 파일)
+    file_handler = RotatingFileHandler(
+        log_filename, 
+        maxBytes=10*1024*1024,  # 10 MB
+        backupCount=5,
+        encoding='utf-8'
+    )
+    
+    # 콘솔 핸들러 설정
+    console_handler = logging.StreamHandler()
+    
+    # 포맷 설정
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+    
+    # 핸들러 추가
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    
+    return logger
+
 # 감정 분석 체인 생성
 def create_sentiment_analysis_chain(llm):
     sentiment_chain = (
@@ -161,7 +201,7 @@ async def analyze_sentiment(text, sentiment_chain):
         # 결과에 "부적절"이 포함되어 있으면 부적절한 것으로 판단
         return "부적절" in result.lower()
     except Exception as e:
-        print(f"감정 분석 중 오류 발생: {str(e)}")
+        logger.info(f"감정 분석 중 오류 발생: {str(e)}")
         # 오류 발생 시는 안전하게 False 반환
         return False
     
@@ -233,15 +273,15 @@ def create_multimodal_rag_chain(retriever, llm):
         original_question = input_dict["original_question"]
         optimized_query = input_dict["optimized_query"]
         
-        print(f"원본 질문: {original_question}")
-        print(f"최적화된 쿼리: {optimized_query}")
+        logger.info(f"원본 질문: {original_question}")
+        logger.info(f"최적화된 쿼리: {optimized_query}")
         
         # 최적화된 쿼리로 검색
         retrieved_docs = retriever.invoke(optimized_query)
         
-        print(f"검색된 문서 수: {len(retrieved_docs)}")
+        logger.info(f"검색된 문서 수: {len(retrieved_docs)}")
         if retrieved_docs:
-            print(f"첫 번째 문서 일부: {retrieved_docs[0].page_content[:100]}...")
+            logger.info(f"첫 번째 문서 일부: {retrieved_docs[0].page_content[:100]}...")
         
         return {
             "question": original_question,
@@ -277,8 +317,8 @@ def create_multimodal_rag_chain(retriever, llm):
 # format_response 함수에 로그 추가
 def format_response(question, analyzed_info):
     """응답을 사용자 친화적인 형식으로 변환"""
-    print(f"질문: {question}")
-    print(f"분석된 정보: {analyzed_info}")
+    logger.info(f"질문: {question}")
+    logger.info(f"분석된 정보: {analyzed_info}")
     
     # analyzed_info에서 정책 정보 추출
     policies = []
@@ -304,12 +344,12 @@ def format_response(question, analyzed_info):
     if current_policy:
         policies.append(current_policy)
     
-    print(f"추출된 정책 수: {len(policies)}")
+    logger.info(f"추출된 정책 수: {len(policies)}")
     if len(policies) > 0:
-        print(f"첫 번째 정책: {policies[0]}")
+        logger.info(f"첫 번째 정책: {policies[0]}")
     
     else:
-        print("관련 정책 정보가 없음")
+        logger.info("관련 정책 정보가 없음")
         return f"🤖 {question} 관련 답변드립니다.\n\n죄송합니다. 요청하신 '{question}'에 관한 정책 정보를 찾을 수 없습니다. 다른 질문으로 시도해 보세요."
     
     # 응답 구성
@@ -324,25 +364,25 @@ def init_rag_system():
     """LangChain RAG 시스템 초기화"""
     global retriever, llm, rag_chain ,sentiment_chain
 
-    print("LangChain RAG 시스템 초기화 중...")
+    logger.info("LangChain RAG 시스템 초기화 중...")
 
     # 1. PDF 문서 로드 및 텍스트 추출
     documents = []
     for pdf_path in pdf_paths:
         if os.path.exists(pdf_path):
-            print(f"PDF 파일 로드 중: {pdf_path}")
+            logger.info(f"PDF 파일 로드 중: {pdf_path}")
             loader = PyPDFLoader(pdf_path)
             docs = loader.load()
             documents.extend(docs)
-            print(f"- {len(docs)}개 페이지 로드됨")
+            logger.info(f"- {len(docs)}개 페이지 로드됨")
         else:
-            print(f"파일이 존재하지 않습니다: {pdf_path}")
+            logger.info(f"파일이 존재하지 않습니다: {pdf_path}")
 
     if not documents:
-        print("로드된 문서가 없습니다. 파일 경로를 확인해주세요.")
+        logger.info("로드된 문서가 없습니다. 파일 경로를 확인해주세요.")
         return False
     
-    print(f"총 {len(documents)}개 페이지 로드됨")
+    logger.info(f"총 {len(documents)}개 페이지 로드됨")
 
     # 2. 텍스트 분할
     text_splitter = RecursiveCharacterTextSplitter(
@@ -351,27 +391,27 @@ def init_rag_system():
         length_function=len
     )
     chunks = text_splitter.split_documents(documents)
-    print(f"문서를 {len(chunks)}개의 청크로 분할했습니다.")
+    logger.info(f"문서를 {len(chunks)}개의 청크로 분할했습니다.")
 
     # 3. 임베딩 모델 설정
-    print("임베딩 모델 로드 중...")
+    logger.info("임베딩 모델 로드 중...")
     embedding_model = HuggingFaceEmbeddings(
         model_name="sentence-transformers/distiluse-base-multilingual-cased-v1",
         model_kwargs={'device': 'cuda' if torch.cuda.is_available() else 'cpu'},
         encode_kwargs={'normalize_embeddings': True}
     )
-    print("임베딩 모델 로드 성공!")
+    logger.info("임베딩 모델 로드 성공!")
 
     # 4. 벡터 데이터베이스 생성
-    print("벡터 데이터베이스 생성 중...")
+    logger.info("벡터 데이터베이스 생성 중...")
     vectorstore = FAISS.from_documents(chunks, embedding_model)
-    print("벡터 데이터베이스 생성 완료")
+    logger.info("벡터 데이터베이스 생성 완료")
 
     # 샘플 문서 확인 (디버깅용)
     for i, doc_id in enumerate(list(vectorstore.docstore._dict.keys())[:3]):  # 처음 3개만 출력
-        print(f"문서 ID {doc_id}의 내용:")
-        print(vectorstore.docstore._dict[doc_id])
-        print("-" * 50)
+        logger.info(f"문서 ID {doc_id}의 내용:")
+        logger.info(vectorstore.docstore._dict[doc_id])
+        logger.info("-" * 50)
         if i >= 2:  # 최대 3개만 출력
             break
 
@@ -383,7 +423,7 @@ def init_rag_system():
 
     # 6. EXAONE 모델 로드 및 LangChain LLM 래퍼 설정
     model_name = "LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct"
-    print(f"{model_name} 모델 로드 중...")
+    logger.info(f"{model_name} 모델 로드 중...")
 
     # 토크나이저 로드
     tokenizer = AutoTokenizer.from_pretrained(
@@ -430,14 +470,14 @@ def init_rag_system():
     # LangChain HuggingFacePipeline 래퍼 생성
     llm = HuggingFacePipeline(pipeline=hf_pipeline)
 
-    print("EXAONE 모델 로드 완료!")
+    logger.info("EXAONE 모델 로드 완료!")
 
     rag_chain = create_multimodal_rag_chain(retriever, llm)
 
     # 감정 분석 체인 생성
     sentiment_chain = create_sentiment_analysis_chain(llm)
 
-    print("LangChain RAG 시스템 초기화 완료!")
+    logger.info("LangChain RAG 시스템 초기화 완료!")
     return True
 
 def optimize_performance(model):
@@ -455,7 +495,7 @@ def optimize_performance(model):
         if hasattr(model.config, 'gradient_checkpointing'):
             model.config.gradient_checkpointing = False
 
-    print("성능 최적화 설정이 적용되었습니다.")
+    logger.info("성능 최적화 설정이 적용되었습니다.")
 
 # 기본 경로 - 메인 HTML 파일 반환
 @app.get('/')
@@ -488,13 +528,13 @@ async def chat_endpoint(request: Request):
     try:
         # 1단계: 기본 금지어 필터링
         if contains_prohibited_content(user_message):
-            response = "죄송합니다. 부적절한 언어나 개인정보가 포함된 질문에는 답변할 수 없습니다."
+            response = "죄송합니다1. 부적절한 언어나 개인정보가 포함된 질문에는 답변할 수 없습니다."
             return JSONResponse({"response": response})
         
         # 2단계: 감정 분석을 통한 부정적 어휘 필터링
         is_inappropriate = await analyze_sentiment(user_message, sentiment_chain)
         if is_inappropriate:
-            response = "죄송합니다. 부적절하거나 부정적인 내용이 포함된 질문에는 답변할 수 없습니다."
+            response = "죄송합니다2. 부적절하거나 부정적인 내용이 포함된 질문에는 답변할 수 없습니다."
             return JSONResponse({"response": response})
         
         # 사용자 메시지를 히스토리에 추가
@@ -515,7 +555,7 @@ async def chat_endpoint(request: Request):
             "session_id": session_id
         })
     except Exception as e:
-        print(f"Error processing request: {str(e)}")
+        logger.info(f"Error processing request: {str(e)}")
         return JSONResponse({
             "response": "죄송합니다. 요청 처리 중 오류가 발생했습니다.",
             "session_id": session_id
@@ -524,15 +564,23 @@ async def chat_endpoint(request: Request):
 # 서버 초기화 및 실행을 위한 이벤트
 @app.on_event("startup")
 async def startup_event():
+    global logger
+    
+    # 로깅 시스템 설정
+    logger = setup_logging()
+    logger.info("==== 웹 챗봇 서버 시작 ====")
+    
     # 모델 및 RAG 시스템 초기화
+    logger.info("LangChain RAG 시스템 초기화 시작")
     init_success = init_rag_system()
 
     if not init_success:
-        print("초기화 실패. 서버를 시작할 수 없습니다.")
+        logger.error("초기화 실패. 서버를 시작할 수 없습니다.")
         import sys
         sys.exit(1)
     else:
-        print("서버 시작 준비 완료! 웹 챗봇 서버를 실행합니다.")
+        logger.info("서버 시작 준비 완료! 웹 챗봇 서버를 실행합니다.")
+  
 
 # 서버 실행
 if __name__ == "__main__":
