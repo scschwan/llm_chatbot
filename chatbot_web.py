@@ -633,7 +633,7 @@ async def pdf_page():
 
 @app.get("/view-pdf")
 async def view_pdf():
-    filename = "region_document.pdf"
+    filename = "/static/pdfs/region_document.pdf"
     file_path = os.path.join(BASE_DIR, filename)
     if not os.path.exists(file_path):
         from fastapi import HTTPException
