@@ -710,6 +710,54 @@ def init_rag_system():
     logger.info("LangChain RAG 시스템 초기화 중...")
 
     # 1-4. 벡터 데이터베이스 설정 부분 (코드 유지)...
+     # 1. PDF 문서 로드 및 텍스트 추출
+    documents = []
+    for pdf_path in pdf_paths:
+        if os.path.exists(pdf_path):
+            logger.info(f"PDF 파일 로드 중: {pdf_path}")
+            loader = PyPDFLoader(pdf_path)
+            docs = loader.load()
+            documents.extend(docs)
+            logger.info(f"- {len(docs)}개 페이지 로드됨")
+        else:
+            logger.info(f"파일이 존재하지 않습니다: {pdf_path}")
+
+    if not documents:
+        logger.info("로드된 문서가 없습니다. 파일 경로를 확인해주세요.")
+        return False
+    
+    logger.info(f"총 {len(documents)}개 페이지 로드됨")
+
+    # 2. 텍스트 분할
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=800,
+        chunk_overlap=200,
+        length_function=len
+    )
+    chunks = text_splitter.split_documents(documents)
+    logger.info(f"문서를 {len(chunks)}개의 청크로 분할했습니다.")
+
+    # 3. 임베딩 모델 설정
+    logger.info("임베딩 모델 로드 중...")
+    embedding_model = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/distiluse-base-multilingual-cased-v1",
+        model_kwargs={'device': 'cuda' if torch.cuda.is_available() else 'cpu'},
+        encode_kwargs={'normalize_embeddings': True}
+    )
+    logger.info("임베딩 모델 로드 성공!")
+
+    # 4. 벡터 데이터베이스 생성
+    logger.info("벡터 데이터베이스 생성 중...")
+    vectorstore = FAISS.from_documents(chunks, embedding_model)
+    logger.info("벡터 데이터베이스 생성 완료")
+
+    # 샘플 문서 확인 (디버깅용)
+    for i, doc_id in enumerate(list(vectorstore.docstore._dict.keys())[:3]):  # 처음 3개만 출력
+        logger.info(f"문서 ID {doc_id}의 내용:")
+        logger.info(vectorstore.docstore._dict[doc_id])
+        logger.info("-" * 50)
+        if i >= 2:  # 최대 3개만 출력
+            break
     
     # 5. EXAONE 모델 로드 부분 수정
     model_name = "LGAI-EXAONE/EXAONE-Deep-32B-AWQ"  # 32B 모델로 변경
@@ -754,7 +802,7 @@ def init_rag_system():
                 output = self.model.generate(
                     input_ids,
                     eos_token_id=self.tokenizer.eos_token_id,
-                    max_new_tokens=800,  # 더 많은 토큰 생성
+                    max_new_tokens=300,  # 더 많은 토큰 생성
                     do_sample=True,
                     temperature=0.3,
                     top_p=0.92,
