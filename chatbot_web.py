@@ -712,7 +712,7 @@ def init_rag_system():
     # 1-4. 벡터 데이터베이스 설정 부분 (코드 유지)...
     
     # 5. EXAONE 모델 로드 부분 수정
-    model_name = "LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct"  # 또는 EXAONE-Deep-32B-AWQ
+    model_name = "LGAI-EXAONE/EXAONE-Deep-32B-AWQ"  # 32B 모델로 변경
     logger.info(f"{model_name} 모델 로드 중...")
 
     # 토크나이저 로드
