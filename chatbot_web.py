@@ -640,7 +640,7 @@ def init_rag_system():
     )
 
     # 6. EXAONE 모델 로드 및 LangChain LLM 래퍼 설정
-    model_name = "LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct"
+    model_name = "LGAI-EXAONE/EXAONE-3.5-32B-Instruct"
     logger.info(f"{model_name} 모델 로드 중...")
 
     # 토크나이저 로드
@@ -677,7 +677,7 @@ def init_rag_system():
         task="text-generation",
         model=model,
         tokenizer=tokenizer,
-        max_new_tokens=500,
+        max_new_tokens=300,
         do_sample=True,
         temperature=0.3,
         device_map="auto",
