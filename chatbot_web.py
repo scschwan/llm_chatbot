@@ -112,19 +112,111 @@ document_analysis_prompt = PromptTemplate.from_template(
     문서 내용:
     {context}
     
-    위 문서에서 질문과 관련된 가장 중요한 정책/공약을 최대 10개까지 추출하여 1,000자 이내로 요약해주세요.
-    각 정책은 핵심 내용만 간결하게 작성하세요.
-    또한 마지막에 출처가 되는 공약의 page 와 문서명을 반드시 답변해주세요.
-    관련 정책이 없다면 "관련 정책 정보 없음"이라고 답하세요.
+    위 문서에서 질문과 관련된 가장 중요한 정책/공약을 추출해주세요.
+    다음 규칙을 반드시 지켜주세요:
+    1. 정책/공약은 최대 5개까지만 추출하세요. 5개를 넘지 마세요.
+    2. 각 정책은 핵심 내용만 간결하게 100자 이내로 작성하세요.
+    3. 전체 응답은 1,000자를 넘지 않도록 하세요.
+    4. 각 정책은 번호를 붙여 구분하고, 정책별로 한 줄씩 띄워주세요.
+    5. 마지막에 출처가 되는 공약의 page와 문서명을 반드시 표시하세요.
+    6. 관련 정책이 없다면 "관련 정책 정보 없음"이라고만 답하세요.
     """
 )
 
-'''
-위 문서에서 질문과 관련된 정책/공약만 추출하세요. 
-각 정책/공약의 핵심 내용과 위치한 문서 부분을 명시하세요.
-관련 정책이 없다면 "관련 정책 정보 없음"이라고 답하세요.
-'''
+# 감정 분석 프롬프트
+sentiment_analysis_prompt = PromptTemplate.from_template(
+    """다음 텍스트의 감정과 의도를 분석해주세요:
+    
+    텍스트: {text}
+    
+    이 텍스트가 다음 중 하나라도 포함하면 "부적절"이라고 답하세요:
+    1. 비속어나 욕설
+    2. 성적으로 부적절한 내용
+    3. 혐오 표현이나 차별적 언어
+    4. 위협적이거나 폭력적인 내용
+    5. 개인정보 요청
+    6. 불법적인 활동 관련 내용
+    7. 정치적 비방이나 인신공격
+    
+    그렇지 않다면 "적절"이라고 답하세요.
+    
+    결과:
+    """
+)
 
+# 감정 분석 체인 생성
+def create_sentiment_analysis_chain(llm):
+    sentiment_chain = (
+        sentiment_analysis_prompt
+        | llm
+        | StrOutputParser()
+    )
+    return sentiment_chain
+
+# 감정 분석 함수
+async def analyze_sentiment(text, sentiment_chain):
+    """텍스트의 감정과 의도를 분석하여 적절성 판단"""
+    try:
+        result = sentiment_chain.invoke({"text": text})
+        # 결과에 "부적절"이 포함되어 있으면 부적절한 것으로 판단
+        return "부적절" in result.lower()
+    except Exception as e:
+        print(f"감정 분석 중 오류 발생: {str(e)}")
+        # 오류 발생 시는 안전하게 False 반환
+        return False
+    
+# 금지어 목록
+prohibited_words = [
+    "씨발", "병신", "개새끼", "지랄", "좆", "니미", "fuck", "sex", "bastard", "bitch",
+    "개자식", "걸레", "창녀", "쌍놈", "쌍년", "애미", "애비", 
+    "전화번호", "주민번호", "계좌번호", "신용카드", "클라우드", "cloud"
+]
+
+def contains_prohibited_content(text):
+    """입력된 텍스트에 비속어나 개인 정보가 포함되어 있는지 확인"""
+    text_lower = text.lower()
+    
+    # 금지어 체크
+    for word in prohibited_words:
+        if word.lower() in text_lower:
+            return True
+            
+    # 이름 패턴 체크
+    name_pattern = re.compile(r'[가-힣]{2,4}\s?씨')
+    if name_pattern.search(text):
+        return True
+        
+    return False
+
+# 대화 히스토리 저장 딕셔너리
+conversation_history = {}
+
+# 대화 히스토리에 메시지 추가 함수
+def add_to_history(session_id, role, content):
+    if session_id not in conversation_history:
+        conversation_history[session_id] = []
+    
+    conversation_history[session_id].append({
+        "role": role,
+        "content": content,
+        "timestamp": import_datetime().now().isoformat()
+    })
+    
+    # 히스토리 크기 제한 (최근 10개 메시지만 유지)
+    if len(conversation_history[session_id]) > 10:
+        conversation_history[session_id] = conversation_history[session_id][-10:]
+
+# 이전 대화 내용을 기반으로 컨텍스트 생성
+def get_conversation_context(session_id):
+    if session_id not in conversation_history or len(conversation_history[session_id]) == 0:
+        return ""
+    
+    context = "이전 대화 내용:\n"
+    for message in conversation_history[session_id][-3:]:  # 최근 3개 메시지만 사용
+        role_text = "사용자" if message["role"] == "user" else "챗봇"
+        context += f"{role_text}: {message['content']}\n"
+    
+    return context + "\n"
 
 # 전체 멀티모달 RAG 체인 구성
 def create_multimodal_rag_chain(retriever, llm):
@@ -230,7 +322,7 @@ def format_response(question, analyzed_info):
 # init_rag_system 함수에 로그 추가
 def init_rag_system():
     """LangChain RAG 시스템 초기화"""
-    global retriever, llm, rag_chain
+    global retriever, llm, rag_chain ,sentiment_chain
 
     print("LangChain RAG 시스템 초기화 중...")
 
@@ -342,6 +434,9 @@ def init_rag_system():
 
     rag_chain = create_multimodal_rag_chain(retriever, llm)
 
+    # 감정 분석 체인 생성
+    sentiment_chain = create_sentiment_analysis_chain(llm)
+
     print("LangChain RAG 시스템 초기화 완료!")
     return True
 
@@ -380,27 +475,50 @@ async def get_files():
 # 웹 채팅 API 엔드포인트
 @app.post('/api/chat')
 async def chat_endpoint(request: Request):
-    global rag_chain
+    global rag_chain, sentiment_chain
     
     # 요청 바디 파싱
     req_data = await request.json()
     user_message = req_data.get('message', '')
+    session_id = req_data.get('session_id', 'default')
     
     if not user_message:
         return JSONResponse({"response": "메시지를 입력해주세요."})
     
     try:
-        # RAG 체인으로 응답 생성
-        response = rag_chain.invoke(user_message)
+        # 1단계: 기본 금지어 필터링
+        if contains_prohibited_content(user_message):
+            response = "죄송합니다. 부적절한 언어나 개인정보가 포함된 질문에는 답변할 수 없습니다."
+            return JSONResponse({"response": response})
         
-        # 클라이언트 응답 형식
+        # 2단계: 감정 분석을 통한 부정적 어휘 필터링
+        is_inappropriate = await analyze_sentiment(user_message, sentiment_chain)
+        if is_inappropriate:
+            response = "죄송합니다. 부적절하거나 부정적인 내용이 포함된 질문에는 답변할 수 없습니다."
+            return JSONResponse({"response": response})
+        
+        # 사용자 메시지를 히스토리에 추가
+        add_to_history(session_id, "user", user_message)
+        
+        # 이전 대화 내용 컨텍스트 가져오기
+        context = get_conversation_context(session_id)
+        
+        # 컨텍스트와 함께 RAG 체인으로 응답 생성
+        contextual_message = f"{context}새로운 질문: {user_message}"
+        response = rag_chain.invoke(contextual_message)
+        
+        # 챗봇 응답을 히스토리에 추가
+        add_to_history(session_id, "assistant", response)
+        
         return JSONResponse({
-            "response": response
+            "response": response,
+            "session_id": session_id
         })
     except Exception as e:
         print(f"Error processing request: {str(e)}")
         return JSONResponse({
-            "response": "죄송합니다. 요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+            "response": "죄송합니다. 요청 처리 중 오류가 발생했습니다.",
+            "session_id": session_id
         })
 
 # 서버 초기화 및 실행을 위한 이벤트
