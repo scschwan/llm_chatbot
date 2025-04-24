@@ -685,7 +685,7 @@ def init_rag_system():
         temperature=0.3,
         device_map="auto",
         eos_token_id=tokenizer.eos_token_id,
-        pad_token_id=tokenizer.eos_token_id
+        pad_token_id=tokenizer.eos_token_id,
         return_full_text=False    # 입력 프롬프트를 제외한 생성된 텍스트만 반환
     )
 
