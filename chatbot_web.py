@@ -140,8 +140,6 @@ document_analysis_prompt = PromptTemplate.from_template(
     6. 관련 정책이 없다면 "관련 정책 정보 없음"이라고만 답하세요.
     
     답변:
-    
-    답변:
     """
 )
 
@@ -710,15 +708,16 @@ async def pdf_page():
 
 @app.get("/view-pdf")
 async def view_pdf():
-    filename = "/static/pdfs/region_document.pdf"
-    file_path = os.path.join(BASE_DIR, filename)
+    # StaticFiles 미들웨어가 이미 /static 경로에 마운트되어 있으므로
+    # STATIC_DIR 내부의 경로만 지정
+    file_path = os.path.join(STATIC_DIR, "pdfs/region_document.pdf")
     if not os.path.exists(file_path):
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="문서를 찾을 수 없습니다.")
     return FileResponse(
         path=file_path,
         media_type="application/pdf",
-        content_disposition_type="inline"  # 브라우저에서 바로 보기
+        content_disposition_type="inline"
     )
 
 # PDF 파일 정보 API 엔드포인트
