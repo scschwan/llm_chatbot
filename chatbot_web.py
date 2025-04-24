@@ -130,6 +130,9 @@ document_analysis_prompt = PromptTemplate.from_template(
     4. 각 정책은 반드시 번호를 붙여 구분하고(1. 2. 3. 등), 정책별로 한 줄씩 띄워주세요.
     5. 마지막에 출처가 되는 공약의 page와 문서명을 반드시 표시하세요.
     6. 관련 정책이 없다면 "관련 정책 정보 없음"이라고만 답하세요.
+    7. 만약 질문이 이전에 언급된 항목에 대한 상세 설명 요청이라면, 해당 항목에 대해서만 심층적으로 설명해주세요.
+    
+    답변:
     """
 )
 
@@ -359,8 +362,21 @@ def format_response(question, analyzed_info):
     
     # 이전 대화 내용과 새 질문 분리
     clean_question = question
+    is_item_detail_request = False
+    requested_item_num = None
+    
     if "새로운 질문:" in question:
-        clean_question = question.split("새로운 질문:")[-1].strip()
+        clean_question = question.split("새로운 질문:")[-1].strip().split("\n")[0]
+    
+    # 설명할 항목 번호 추출
+    if "설명할 항목 번호:" in question:
+        is_item_detail_request = True
+        item_line = [line for line in question.split("\n") if "설명할 항목 번호:" in line]
+        if item_line:
+            try:
+                requested_item_num = int(item_line[0].split("설명할 항목 번호:")[1].strip())
+            except:
+                pass
     
     # 참조 항목 정보 제거
     if "(참조 항목:" in clean_question:
@@ -374,14 +390,17 @@ def format_response(question, analyzed_info):
         logger.info(f" analyzed_info[-30:] : {analyzed_info[-30:]}")
         return f"🤖 {clean_question}에 관한 정책 정보를 찾을 수 없습니다. 다른 질문으로 시도해 보세요."
     
-     # '답변:' 이후 내용만 추출
+    # '답변:' 이후 내용만 추출
     final_answer = analyzed_info
     if "답변:" in analyzed_info:
         final_answer = analyzed_info.split("답변:")[1].strip()
-
-    # LLM이 생성한 응답을 그대로 사용 (자체 포맷팅은 제거)
-    # 헤더만 추가
-    response = f"🤖 {clean_question} 관련 답변드립니다.\n\n{final_answer}"
+    
+    # 특정 항목에 대한 상세 정보 요청인 경우 응답 형식 조정
+    if is_item_detail_request and requested_item_num:
+        response = f"🤖 {requested_item_num}번 항목에 대한 자세한 설명입니다.\n\n{final_answer}"
+    else:
+        # 일반 응답인 경우 기본 형식 사용
+        response = f"🤖 {clean_question} 관련 답변드립니다.\n\n{final_answer}"
     
     # 로그에 최종 응답 기록
     logger.info(f"최종 응답: {response}...")
@@ -390,7 +409,10 @@ def format_response(question, analyzed_info):
 
 def prepare_contextual_message(user_message, session_id):
     """대화 컨텍스트와 사용자 메시지를 결합하여 최종 쿼리 생성"""
-    # 1. 이전 대화 히스토리 확인 (최대 2개 질의응답 쌍)
+    # 1. 컨텍스트 및 참조 항목 확인
+    query, context_info = process_query_with_context(user_message, session_id)
+    
+    # 2. 이전 대화 히스토리 확인 (최대 2개 질의응답 쌍)
     previous_context = ""
     
     if session_id in conversation_history and len(conversation_history[session_id]) > 0:
@@ -418,30 +440,24 @@ def prepare_contextual_message(user_message, session_id):
             
             previous_context += f"{role_text}: {content}\n"
     
-    # 2. 항목 참조 처리
-    item_content = None
-    if "번" in user_message or "항목" in user_message:
-        # 이전 응답에서 특정 항목 찾기
-        item_match = re.search(r'([0-9]+)번째|([0-9]+)번|([0-9]+)항목|([0-9]+)번 항목', user_message)
-        if item_match and session_id in conversation_history:
-            # 숫자 추출
-            item_num = next(g for g in item_match.groups() if g is not None)
-            item_num = int(item_num)
-            
-            # 이전 챗봇 응답 찾기
-            for msg in reversed(conversation_history[session_id]):
-                if msg["role"] == "assistant":
-                    bot_response = msg["content"]
-                    # 번호가 붙은 항목 패턴 찾기
-                    items = re.findall(r'([0-9]+)\.\s+(.+?)(?=\n\n[0-9]+\.|\n\n$|$)', bot_response, re.DOTALL)
-                    if items and 0 < item_num <= len(items):
-                        item_content = items[item_num-1][1].strip()
-                        break
-    
     # 3. 최종 쿼리 구성
-    # 참조 항목이 있을 경우 추가 정보로 제공
-    if item_content:
-        final_query = f"{previous_context}\n새로운 질문: {user_message}\n참조 항목 내용: {item_content}"
+    # 항목 자세히 설명 요청인 경우 특별 처리
+    if context_info and context_info.get("request_type") == "item_detail":
+        final_query = (
+            f"{previous_context}\n"
+            f"새로운 질문: {user_message}\n"
+            f"이전 질문: {context_info.get('previous_question', '')}\n"
+            f"설명할 항목 번호: {context_info.get('item_number')}\n"
+            f"설명할 항목 내용: {context_info.get('selected_item')}\n"
+            f"요청 유형: 특정 항목에 대한 상세 설명 요청"
+        )
+    # 일반 참조 항목이 있을 경우 추가 정보로 제공
+    elif context_info:
+        final_query = (
+            f"{previous_context}\n"
+            f"새로운 질문: {user_message}\n"
+            f"참조 항목: {context_info}"
+        )
     else:
         final_query = f"{previous_context}\n새로운 질문: {user_message}"
     
@@ -457,9 +473,12 @@ def process_query_with_context(query, session_id):
     
     # 최근 챗봇 응답 찾기
     latest_bot_response = None
+    previous_question = None
     for msg in reversed(conversation_history[session_id]):
-        if msg["role"] == "assistant":
+        if msg["role"] == "assistant" and not latest_bot_response:
             latest_bot_response = msg["content"]
+        elif msg["role"] == "user" and previous_question is None and latest_bot_response:
+            previous_question = msg["content"]
             break
     
     if not latest_bot_response:
@@ -476,14 +495,21 @@ def process_query_with_context(query, session_id):
         # 이전 응답에서 항목 패턴 추출
         try:
             # 항목 패턴 (숫자. 내용) 찾기
-            items = re.findall(r'([0-9]+)\.\s+(.+?)(?=\n\n[0-9]+\.|\n\n$|$)', latest_bot_response, re.DOTALL)
+            items = re.findall(r'([0-9]+)\.\s+(.+?)(?=\n\n[0-9]+\.|$)', latest_bot_response, re.DOTALL)
             if items and 0 < item_num <= len(items):
                 # 찾은 항목의 내용
                 item_content = items[item_num - 1][1].strip()
                 logger.info(f"찾은 항목 내용: {item_content}")
                 
-                # 응답에서 해당 항목 내용이 언급되도록 원본 질의 반환 + 항목 내용 반환
-                return query, item_content
+                # 응답을 위한 컨텍스트 구성 - 이전 질문과 항목 정보 포함
+                context_info = {
+                    "previous_question": previous_question,
+                    "selected_item": item_content,
+                    "item_number": item_num,
+                    "request_type": "item_detail"
+                }
+                
+                return query, context_info
         except Exception as e:
             logger.error(f"항목 추출 오류: {str(e)}")
     
