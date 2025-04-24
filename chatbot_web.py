@@ -422,6 +422,21 @@ def format_response(question, analyzed_info):
     
     logger.info(f"정제된 질문: {clean_question}")
     
+    # 정책 자료 다운로드 요청인지 확인
+    is_download_request = any(keyword in clean_question.lower() for keyword in 
+                            ["자료", "다운로드", "파일", "받기", "pdf", "정책집", "공약집"])
+    
+    # 정책 자료 다운로드 요청인 경우 다운로드 링크 제공
+    if is_download_request:
+        download_links = (
+            "🤖 정책 자료를 다운로드할 수 있는 링크를 제공해 드립니다:\n\n"
+            "1. [정책공약집 다운로드](/static/pdfs/full.pdf)\n"
+            "2. [지역공약집 다운로드](/static/pdfs/region_document.pdf)\n\n"
+            "위 링크를 클릭하여 PDF 파일을 다운로드하거나 확인하실 수 있습니다. "
+            "추가로 궁금하신 내용이 있으시면 말씀해 주세요."
+        )
+        return download_links
+    
     # 응답에 "관련 정책 정보 없음"이 명시적으로 포함된 경우에만 정보 없음으로 처리
     if "관련 정책 정보 없음" in analyzed_info[-30:]:
         logger.info(f"관련 정책 정보가 없음 analyzed_info : {analyzed_info}")
@@ -658,7 +673,7 @@ def init_rag_system():
         task="text-generation",
         model=model,
         tokenizer=tokenizer,
-        max_new_tokens=300,
+        max_new_tokens=500,
         do_sample=True,
         temperature=0.3,
         device_map="auto",
