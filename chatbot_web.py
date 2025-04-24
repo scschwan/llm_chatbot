@@ -578,12 +578,24 @@ def process_query_with_context(query, session_id):
     return query, None
 
 # init_rag_system 함수에 로그 추가
+# 전역 변수로 LangChain 구성요소 선언
+retriever = None
+llm = None
+rag_chain = None
+query_transformer_chain = None  # 추가된 부분
 
 def init_rag_system():
     """LangChain RAG 시스템 초기화"""
-    global retriever, llm, rag_chain ,sentiment_chain
+    global retriever, llm, rag_chain ,sentiment_chain ,query_transformer_chain  
 
     logger.info("LangChain RAG 시스템 초기화 중...")
+
+    query_transformer_chain = (
+        {"question": RunnablePassthrough()}
+        | query_transformation_prompt
+        | llm
+        | StrOutputParser()
+    )
 
     # 1. PDF 문서 로드 및 텍스트 추출
     documents = []
@@ -704,6 +716,7 @@ def init_rag_system():
 
 async def generate_streaming_response(contextual_query, session_id):
     """RAG 체인에서 스트리밍 방식으로 응답을 생성하는 제너레이터 함수"""
+    global query_transformer_chain, retriever  # 전역 변수 사용 명시
     try:
         # 스트리밍 응답 시작 부분 전송
         yield json.dumps({
