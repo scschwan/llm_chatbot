@@ -4,9 +4,12 @@ from logging.handlers import RotatingFileHandler
 from datetime import datetime
 import re
 import json
+import csv
+import uuid
 import torch
 import uvicorn
-from fastapi import FastAPI, Request
+from pydantic import BaseModel
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -37,6 +40,12 @@ app.add_middleware(
 # 수정 후
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = BASE_DIR 
+CSV_FILE = os.path.join(BASE_DIR, "comments.csv")
+
+if not os.path.exists(CSV_FILE):
+    with open(CSV_FILE, "w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(["id", "text", "timestamp"])
 
 # PDF 파일 경로 설정 및 파일 데이터 구성
 pdf_paths = [
@@ -262,7 +271,7 @@ def add_to_history(session_id, role, content):
     conversation_history[session_id].append({
         "role": role,
         "content": content,
-        "timestamp": datetime.now().isoformat()  # import_datetime 대신 직접 datetime 사용
+        "timestamp": datetime.now().isoformat()  # datetime 직접 사용
     })
     
     # 히스토리 크기 제한 (최근 10개 메시지만 유지)
@@ -345,54 +354,133 @@ def create_multimodal_rag_chain(retriever, llm):
 # format_response 함수에 로그 추가
 def format_response(question, analyzed_info):
     """응답을 사용자 친화적인 형식으로 변환"""
-    logger.info(f"질문: {question}")
+    logger.info(f"원본 질문: {question}")
     logger.info(f"분석된 정보: {analyzed_info}")
     
-    # 새 질문 부분만 추출 (이전 대화 내용 제거)
+    # 이전 대화 내용과 새 질문 분리
+    clean_question = question
     if "새로운 질문:" in question:
-        question = question.split("새로운 질문:")[-1].strip()
+        clean_question = question.split("새로운 질문:")[-1].strip()
     
-    # analyzed_info에서 정책 정보 추출
+    # 참조 항목 정보 제거
+    if "(참조 항목:" in clean_question:
+        clean_question = clean_question.split("(참조 항목:")[0].strip()
+    
+    logger.info(f"정제된 질문: {clean_question}")
+    
+    # 분석된 정보에서 정책 추출
+    # 방법 1: 분석된 정보에서 번호가 있는 라인만 추출
     policies = []
+    pattern = re.compile(r'^\s*(\d+)\.\s+(.+)$', re.MULTILINE)
+    matches = pattern.findall(analyzed_info)
     
-    # 간단한 텍스트 처리로 정책 항목 추출
-    info_lines = analyzed_info.split('\n')
-    current_policy = None
+    if matches:
+        for num, content in matches:
+            policies.append(content.strip())
+    else:
+        # 방법 2: 줄 단위로 처리
+        lines = analyzed_info.split('\n')
+        current_policy = None
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
+            # 새 정책 항목 시작
+            if re.match(r'^\d+\.', line) or line.startswith('•') or line.startswith('-'):
+                if current_policy:
+                    policies.append(current_policy)
+                current_policy = line
+            elif current_policy:
+                current_policy += " " + line
+        
+        # 마지막 정책 추가
+        if current_policy:
+            policies.append(current_policy)
     
-    for line in info_lines:
-        line = line.strip()
-        if not line:
-            continue
-            
-        # 새 정책 항목 시작으로 보이는 패턴
-        if re.match(r'^[0-9]+\.', line) or re.match(r'^•', line) or re.match(r'^-', line):
-            if current_policy:
-                policies.append(current_policy)
-            current_policy = line
-        elif current_policy:
-            current_policy += " " + line
-    
-    # 마지막 정책 추가
-    if current_policy:
-        policies.append(current_policy)
+    # 정책이 없거나 "관련 정책 정보 없음"이 포함된 경우
+    if not policies or "관련 정책 정보 없음" in analyzed_info:
+        logger.info("관련 정책 정보가 없음")
+        return f"🤖 {clean_question}에 관한 정책 정보를 찾을 수 없습니다. 다른 질문으로 시도해 보세요."
     
     # 정책 수를 최대 10개로 제한
     policies = policies[:10]
-    
     logger.info(f"추출된 정책 수: {len(policies)}")
-    if len(policies) > 0:
-        logger.info(f"첫 번째 정책: {policies[0]}")
     
-    else:
-        logger.info("관련 정책 정보가 없음")
-        return f"🤖 {question} 관련 답변드립니다.\n\n죄송합니다. 요청하신 '{question}'에 관한 정책 정보를 찾을 수 없습니다. 다른 질문으로 시도해 보세요."
+    # 응답 구성 (간결하게)
+    response = f"🤖 {clean_question} 관련 답변드립니다.\n\n"
     
-    # 응답 구성 (헤더 단순화)
-    response = f"🤖 {question} 관련 답변드립니다.\n\n"
     for i, policy in enumerate(policies, 1):
-        response += f"{i}. {policy}\n\n"
+        # 번호 중복 방지 (이미 번호가 있는 경우 제거)
+        policy_text = re.sub(r'^\d+\.\s*', '', policy)
+        response += f"{i}. {policy_text}\n\n"
+    
+    # 로그에 최종 응답 기록
+    logger.info(f"최종 응답: {response[:200]}...")
     
     return response
+
+def prepare_contextual_message(user_message, session_id):
+    """대화 컨텍스트와 사용자 메시지를 결합하여 최종 쿼리 생성"""
+    # 1. 이전 대화 히스토리 확인 (최대 2개 질의응답 쌍)
+    previous_context = ""
+    
+    if session_id in conversation_history and len(conversation_history[session_id]) > 0:
+        # 최근 2쌍의 대화만 컨텍스트로 사용
+        recent_msgs = []
+        qa_pairs = 0
+        for msg in reversed(conversation_history[session_id]):
+            recent_msgs.append(msg)
+            if msg["role"] == "user":
+                qa_pairs += 1
+                if qa_pairs >= 2:  # 최대 2개 질의응답 쌍만 사용
+                    break
+        
+        # 다시 시간 순서대로 재정렬
+        recent_msgs.reverse()
+        
+        # 컨텍스트 생성
+        for msg in recent_msgs:
+            role_text = "USER" if msg["role"] == "user" else "BOT"
+            # 챗봇 응답에서 헤더 제거 (🤖 ... 관련 답변드립니다 부분)
+            if role_text == "BOT" and "관련 답변드립니다" in msg["content"]:
+                content = msg["content"].split("관련 답변드립니다", 1)[1].strip()
+            else:
+                content = msg["content"]
+            
+            previous_context += f"{role_text}: {content}\n"
+    
+    # 2. 항목 참조 처리
+    item_content = None
+    if "번" in user_message or "항목" in user_message:
+        # 이전 응답에서 특정 항목 찾기
+        item_match = re.search(r'([0-9]+)번째|([0-9]+)번|([0-9]+)항목|([0-9]+)번 항목', user_message)
+        if item_match and session_id in conversation_history:
+            # 숫자 추출
+            item_num = next(g for g in item_match.groups() if g is not None)
+            item_num = int(item_num)
+            
+            # 이전 챗봇 응답 찾기
+            for msg in reversed(conversation_history[session_id]):
+                if msg["role"] == "assistant":
+                    bot_response = msg["content"]
+                    # 번호가 붙은 항목 패턴 찾기
+                    items = re.findall(r'([0-9]+)\.\s+(.+?)(?=\n\n[0-9]+\.|\n\n$|$)', bot_response, re.DOTALL)
+                    if items and 0 < item_num <= len(items):
+                        item_content = items[item_num-1][1].strip()
+                        break
+    
+    # 3. 최종 쿼리 구성
+    # 참조 항목이 있을 경우 추가 정보로 제공
+    if item_content:
+        final_query = f"{previous_context}\n새로운 질문: {user_message}\n참조 항목 내용: {item_content}"
+    else:
+        final_query = f"{previous_context}\n새로운 질문: {user_message}"
+    
+    logger.info(f"최종 쿼리: {final_query[:200]}..." if len(final_query) > 200 else f"최종 쿼리: {final_query}")
+    
+    return final_query
 
 # 개선된 질의 처리를 위한 함수
 def process_query_with_context(query, session_id):
@@ -582,10 +670,65 @@ async def root():
 async def pdf_page():
     return FileResponse(os.path.join(STATIC_DIR, "pdf.html"))
 
+@app.get("/view-pdf")
+async def view_pdf():
+    filename = "region_document.pdf"
+    file_path = os.path.join(BASE_DIR, filename)
+    if not os.path.exists(file_path):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="문서를 찾을 수 없습니다.")
+    return FileResponse(
+        path=file_path,
+        media_type="application/pdf",
+        content_disposition_type="inline"  # 브라우저에서 바로 보기
+    )
+
 # PDF 파일 정보 API 엔드포인트
 @app.get('/api/files')
 async def get_files():
     return JSONResponse(pdf_files_info)
+
+# 댓글 모델 정의
+class Comment(BaseModel):
+    text: str
+
+# 댓글 페이지 라우트 - FileResponse 사용
+@app.get("/comments")
+async def get_comments_page():
+    return FileResponse(os.path.join(BASE_DIR, "comments.html"))
+
+# 댓글 목록 가져오기 API
+@app.get("/api/comments")
+async def get_comments():
+    comments = []
+    try:
+        with open(CSV_FILE, "r", encoding="utf-8") as file:
+            reader = csv.DictReader(file)
+            for row in reader:
+                comments.append({
+                    "id": row["id"],
+                    "text": row["text"],
+                    "timestamp": row["timestamp"]
+                })
+        return {"success": True, "comments": comments}
+    except Exception as e:
+        logger.error(f"댓글 목록 가져오기 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 댓글 저장하기 API
+@app.post("/api/comments")
+async def create_comment(comment: Comment):
+    try:
+        comment_id = str(uuid.uuid4())
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(CSV_FILE, "a", newline="", encoding="utf-8") as file:
+            writer = csv.writer(file)
+            writer.writerow([comment_id, comment.text, timestamp])
+        logger.info(f"새로운 댓글이 저장됨: {comment_id}")
+        return {"success": True, "id": comment_id}
+    except Exception as e:
+        logger.error(f"댓글 저장 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # 웹 채팅 API 엔드포인트
 @app.post('/api/chat')
@@ -641,32 +784,15 @@ async def chat_endpoint(request: Request):
                 })
             return JSONResponse({"response": response})
         
-        # 사용자 메시지를 히스토리에 추가
-        add_to_history(session_id, "user", user_message)
+        # 1. 컨텍스트 및 질의 준비 (이전 대화 + 새 질문)
+        contextual_query = prepare_contextual_message(user_message, session_id)
         
-        # 항목 번호 참조 처리
-        processed_query, referenced_item = process_query_with_context(user_message, session_id)
-        
-        # 내부 처리용 컨텍스트 가져오기 (이전 대화)
-        context = get_conversation_context(session_id)
-        
-        # 컨텍스트와 함께 RAG 체인으로 응답 생성
+        # 2. RAG 체인으로 응답 생성
         logger.info("RAG 체인으로 응답 생성 중...")
-        start_time = datetime.now()
+        response = rag_chain.invoke(contextual_query)
         
-         # RAG 체인에 전달할 메시지 생성
-        if referenced_item:
-            # 참조된 항목이 있으면 이를 포함
-            contextual_message = f"{context}새로운 질문: {processed_query} (참조 항목: {referenced_item})"
-        else:
-            contextual_message = f"{context}새로운 질문: {processed_query}"
-        
-        logger.info(f"RAG 체인에 전달되는 최종 메시지: {contextual_message}")
-        
-        # RAG 체인으로 응답 생성
-        response = rag_chain.invoke(contextual_message)
-        
-        # 챗봇 응답을 히스토리에 추가
+        # 3. 대화 히스토리에 저장 (원본 질문과 응답)
+        add_to_history(session_id, "user", user_message)
         add_to_history(session_id, "assistant", response)
         
         return JSONResponse({
