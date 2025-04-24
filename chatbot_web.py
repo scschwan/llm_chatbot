@@ -370,7 +370,7 @@ def format_response(question, analyzed_info):
     
     # 응답에 "관련 정책 정보 없음"이 명시적으로 포함된 경우에만 정보 없음으로 처리
     if "관련 정책 정보 없음" in analyzed_info:
-        logger.info("관련 정책 정보가 없음")
+        logger.info(f"관련 정책 정보가 없음 analyzed_info : {analyzed_info}")
         return f"🤖 {clean_question}에 관한 정책 정보를 찾을 수 없습니다. 다른 질문으로 시도해 보세요."
     
     # LLM이 생성한 응답을 그대로 사용 (자체 포맷팅은 제거)
