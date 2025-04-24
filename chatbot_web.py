@@ -115,10 +115,10 @@ document_analysis_prompt = PromptTemplate.from_template(
     
     위 문서에서 질문과 관련된 가장 중요한 정책/공약을 추출해주세요.
     다음 규칙을 반드시 지켜주세요:
-    1. 정책/공약은 최대 5개까지만 추출하세요. 5개를 넘지 마세요.
-    2. 각 정책은 핵심 내용만 간결하게 100자 이내로 작성하세요.
-    3. 전체 응답은 1,000자를 넘지 않도록 하세요.
-    4. 각 정책은 번호를 붙여 구분하고, 정책별로 한 줄씩 띄워주세요.
+    1. 정책/공약은 최대 10개까지만 추출하세요. 절대로 10개를 넘기지 마세요.
+    2. 추출한 정책의 수가 10개 미만이라도 무리하게 채우지 마세요.
+    3. 각 정책은 핵심 내용만 간결하게 작성하세요.
+    4. 각 정책은 반드시 번호를 붙여 구분하고(1. 2. 3. 등), 정책별로 한 줄씩 띄워주세요.
     5. 마지막에 출처가 되는 공약의 page와 문서명을 반드시 표시하세요.
     6. 관련 정책이 없다면 "관련 정책 정보 없음"이라고만 답하세요.
     """
@@ -271,15 +271,19 @@ def add_to_history(session_id, role, content):
 
 # 이전 대화 내용을 기반으로 컨텍스트 생성
 def get_conversation_context(session_id):
+    """이전 대화 내용을 기반으로 컨텍스트 생성"""
     if session_id not in conversation_history or len(conversation_history[session_id]) == 0:
         return ""
     
+    # 최근 메시지 2쌍(사용자+챗봇)만 사용
+    recent_messages = conversation_history[session_id][-4:] if len(conversation_history[session_id]) >= 4 else conversation_history[session_id]
+    
     context = "이전 대화 내용:\n"
-    for message in conversation_history[session_id][-3:]:  # 최근 3개 메시지만 사용
+    for message in recent_messages:
         role_text = "사용자" if message["role"] == "user" else "챗봇"
         context += f"{role_text}: {message['content']}\n"
     
-    return context + "\n"
+    return context
 
 # 전체 멀티모달 RAG 체인 구성
 def create_multimodal_rag_chain(retriever, llm):
@@ -367,6 +371,9 @@ def format_response(question, analyzed_info):
     if current_policy:
         policies.append(current_policy)
     
+    # 정책 수를 최대 10개로 제한
+    policies = policies[:10]
+    
     logger.info(f"추출된 정책 수: {len(policies)}")
     if len(policies) > 0:
         logger.info(f"첫 번째 정책: {policies[0]}")
@@ -375,9 +382,9 @@ def format_response(question, analyzed_info):
         logger.info("관련 정책 정보가 없음")
         return f"🤖 {question} 관련 답변드립니다.\n\n죄송합니다. 요청하신 '{question}'에 관한 정책 정보를 찾을 수 없습니다. 다른 질문으로 시도해 보세요."
     
-    # 응답 구성
+    # 응답 구성 (최대 10개 정책만 표시)
     response = f"🤖 {question} 관련 답변드립니다.\n\n"
-    for i, policy in enumerate(policies, 1):  # 최대 3개 정책만 표시
+    for i, policy in enumerate(policies, 1):
         response += f"{i}. {policy}\n\n"
     
     return response
@@ -594,19 +601,33 @@ async def chat_endpoint(request: Request):
         
         # 이전 대화 내용 컨텍스트 가져오기
         context = get_conversation_context(session_id)
+        logger.info(f"대화 컨텍스트: {context}")
         
         # 컨텍스트와 함께 RAG 체인으로 응답 생성
         logger.info("RAG 체인으로 응답 생성 중...")
         start_time = datetime.now()
         
-        contextual_message = f"{context}새로운 질문: {user_message}"
+        # 컨텍스트가 있으면 새 질문과 결합
+        if context:
+            # 새 질문을 명확하게 구분
+            contextual_message = f"{context}\n새로운 질문: {user_message}"
+        else:
+            contextual_message = user_message
+        
+        logger.info(f"RAG 체인에 전달되는 최종 메시지: {contextual_message}")
+        
+        # RAG 체인으로 응답 생성
         response = rag_chain.invoke(contextual_message)
+        
+        # 사용자 메시지와 챗봇 응답을 히스토리에 추가 (응답 생성 후에 추가)
+        add_to_history(session_id, "user", user_message)
+        add_to_history(session_id, "assistant", response)
         
         processing_time = (datetime.now() - start_time).total_seconds()
         logger.info(f"응답 생성 완료 (처리 시간: {processing_time:.2f}초)")
         
         # 챗봇 응답을 히스토리에 추가
-        add_to_history(session_id, "assistant", response)
+        #add_to_history(session_id, "assistant", response)
         
         if debug_mode:
             return JSONResponse({
