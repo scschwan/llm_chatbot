@@ -21,6 +21,8 @@ from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 
 app = FastAPI()
 
+#변경사항 수정11
+
 # Enable CORS
 app.add_middleware(
     CORSMiddleware,
