@@ -209,7 +209,7 @@ async def analyze_sentiment(text, sentiment_chain):
         is_inappropriate = False
         
         # 결과에서 마지막 50자만 검사 (최종 판단은 보통 마지막에 있음)
-        last_part = result[-50:] if len(result) > 50 else result
+        last_part = result[-10:] if len(result) > 10 else result
         
         if "부적절" in last_part:
             is_inappropriate = True
