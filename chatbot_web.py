@@ -205,16 +205,28 @@ async def analyze_sentiment(text, sentiment_chain):
         # 로그에 분석 결과 기록
         logger.info(f"감정 분석 결과: '{result}' (원본 텍스트: '{text[:50]}...')")
         
-        # 결과에 "부적절"이 포함되어 있으면 부적절한 것으로 판단
-        is_inappropriate = "부적절" in result.lower()
+        # 정규 표현식을 사용하여 최종 결과 추출
+        # "결과:" 이후 또는 마지막 줄에서 "적절" 또는 "부적절" 찾기
+        match = re.search(r'결과:?\s*\*?\*?([^\*\n]+)\*?\*?', result, re.IGNORECASE)
+        if match:
+            final_result = match.group(1).strip()
+        else:
+            # 결과: 패턴이 없으면 마지막 줄 확인
+            lines = result.strip().split('\n')
+            final_result = lines[-1].strip()
+            # 마지막 줄에서 별표 등 마크다운 형식 제거
+            final_result = re.sub(r'\*+', '', final_result).strip()
+        
+        # 최종 결과가 명확하게 "부적절"인지 확인
+        is_inappropriate = "부적절" == final_result
         
         # 디버깅을 위한 추가 로그
+        logger.info(f"추출된 최종 결과: '{final_result}'")
         logger.info(f"부적절 여부 판단: {is_inappropriate}")
         
-        return is_inappropriate, result  # 판단 결과와 원본 분석 결과 함께 반환
+        return is_inappropriate, result
     except Exception as e:
         logger.error(f"감정 분석 중 오류 발생: {str(e)}")
-        # 오류 발생 시는 안전하게 False 반환하고 오류 메시지 포함
         return False, f"오류: {str(e)}"
     
 # 금지어 목록
