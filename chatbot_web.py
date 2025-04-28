@@ -407,7 +407,7 @@ def create_exaone_pipeline(model, tokenizer):
 # 정적 파일 서빙 설정
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
-@app.get('/')
+@app.get('/regacy')
 async def get_index():
     index_path = os.path.join(templates_dir, "index.html")
     if os.path.exists(index_path):
@@ -415,7 +415,7 @@ async def get_index():
     else:
         return JSONResponse({"message": "index.html 파일을 찾을 수 없습니다"}, status_code=404)
 
-@app.get('/gpt')
+@app.get('/')
 async def get_index():
     index_path = os.path.join(templates_dir, "updated_index.html")
     if os.path.exists(index_path):
