@@ -333,7 +333,7 @@ def post_process_answer(answer):
     """응답을 후처리하여 일관된 형식으로 정제합니다."""
     # 항목 앞의 과도한 공백 정리 (- 기호 앞의 공백 없앰)
     answer = re.sub(r'^\s+- ', r'- ', answer, flags=re.MULTILINE)
-    
+
     # 불필요한 마크다운 제거
     answer = re.sub(r'\*\*(.*?)\*\*', r'\1', answer)
     
@@ -410,6 +410,14 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 @app.get('/')
 async def get_index():
     index_path = os.path.join(templates_dir, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    else:
+        return JSONResponse({"message": "index.html 파일을 찾을 수 없습니다"}, status_code=404)
+
+@app.get('/gpt')
+async def get_index():
+    index_path = os.path.join(templates_dir, "updated_index.html")
     if os.path.exists(index_path):
         return FileResponse(index_path)
     else:
