@@ -5,6 +5,7 @@ import torch
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig, pipeline
 
@@ -19,6 +20,15 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 
 app = FastAPI()
+
+# CORS 설정 추가
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # PDF 파일 경로 설정
 pdf_paths = [
@@ -294,13 +304,13 @@ async def get_index():
     else:
         return JSONResponse({"message": "index.html 파일을 찾을 수 없습니다"}, status_code=404)
 
-# PDF 페이지 라우트 추가
+# PDF 페이지 라우트
 @app.get('/pdf')
 async def pdf_page():
     return FileResponse(os.path.join(templates_dir, "pdf.html"))
 
-# Comments 페이지 라우트 추가
-@app.get('/pdf/comments')
+# Comments 페이지 라우트
+@app.get('/comments')
 async def comments_page():
     return FileResponse(os.path.join(templates_dir, "comments.html"))
 
@@ -309,7 +319,7 @@ async def comments_page():
 async def get_files():
     return JSONResponse(pdf_files_info)
 
-# PDF 다운로드 라우트 추가
+# PDF 다운로드 라우트
 @app.get('/download/{file_id}')
 async def download_pdf(file_id: str):
     if file_id in pdf_files_info:
@@ -351,6 +361,32 @@ async def get_comments():
     except Exception as e:
         print(f"Error reading comments: {str(e)}")
         return JSONResponse({"error": "댓글 데이터를 처리하는 중 오류가 발생했습니다."}, status_code=500)
+
+# POST를 통한 댓글 추가 기능
+@app.post('/api/comments')
+async def add_comment(request: Request):
+    try:
+        req_data = await request.json()
+        text = req_data.get('text', '').strip()
+        
+        if not text:
+            return JSONResponse({"success": False, "error": "댓글 내용이 비어있습니다."}, status_code=400)
+        
+        comments_path = os.path.join(static_dir, "comments.csv")
+        
+        # 파일이 존재하지 않으면 생성
+        if not os.path.exists(comments_path):
+            with open(comments_path, 'w', encoding='utf-8') as file:
+                file.write("text,likes,dislikes\n")
+        
+        # 댓글 추가
+        with open(comments_path, 'a', encoding='utf-8') as file:
+            file.write(f"{text},0,0\n")
+        
+        return JSONResponse({"success": True})
+    except Exception as e:
+        print(f"Error adding comment: {str(e)}")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 # 웹 버전 채팅 엔드포인트 
 @app.post('/api/chat')
