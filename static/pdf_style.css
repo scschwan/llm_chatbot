@@ -11,6 +11,27 @@ body {
     padding: 20px;
     color: #333;
 }
+  
+  .kakao-chat-btn {
+    display: inline-block;
+    background-color: #FEE500;
+    color: #000000;
+    padding: 12px 24px;
+    border-radius: 6px;
+    text-decoration: none;
+    font-weight: bold;
+    font-size: 16px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border: none;
+  }
+  
+  .kakao-chat-btn:hover {
+    background-color: #FFEB3B;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  }
 
 .container {
     max-width: 1200px;
