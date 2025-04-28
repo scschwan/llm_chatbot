@@ -197,6 +197,8 @@ body {
     margin-bottom: 2px;
     width: 100%;
     line-height: 1.7;
+    white-space: pre-line;
+    word-break: break-word;
 }
 
 .bot-message {
