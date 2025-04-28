@@ -9,6 +9,7 @@ import json
 import torch
 import uvicorn
 from fastapi import FastAPI, Request
+from pydantic import BaseModel
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -504,6 +505,11 @@ async def get_comments():
         logger.error(f"댓글 목록 가져오기 실패: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# 댓글 모델 정의
+class Comment(BaseModel):
+    text: str
+
 # 댓글 저장하기 API
 @app.post("/api/comments")
 async def create_comment(comment: Comment):
@@ -519,9 +525,7 @@ async def create_comment(comment: Comment):
         logger.error(f"댓글 저장 실패: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# 댓글 모델 정의
-class Comment(BaseModel):
-    text: str
+
 
 # 웹 버전 채팅 엔드포인트 
 @app.post('/api/chat')
@@ -542,34 +546,18 @@ async def web_chat(request: Request):
             "response": "메시지가 없습니다. 질문을 입력해주세요."
         })
     
-    try:
-        sentiment_debug_info = {}  # 감정 분석 디버그 정보
-        
+    try:        
         # 1단계: 기본 금지어 필터링
         if contains_prohibited_content(user_query):
             logger.warning(f"금지어 필터링 - 부적절한 내용 감지: {user_query[:30]}...")
             response = "죄송합니다. 부적절한 언어나 개인정보가 포함된 질문에는 답변할 수 없습니다."
-            sentiment_debug_info["filter_type"] = "prohibited_words"
 
             return JSONResponse({
                 "response": response
             }, headers={"Content-Type": "application/json; charset=utf-8"})
 
-        # 2단계: 감정 분석을 통한 부정적 어휘 필터링
-        is_inappropriate, analysis_result = await analyze_sentiment(user_query, sentiment_chain)
         
-        # 디버그 정보 저장
-        sentiment_debug_info = {
-            "analysis_result": analysis_result,
-            "is_inappropriate": is_inappropriate
-        }
-        
-        if is_inappropriate:
-            logger.warning(f"감정 분석 필터링 - 부정적 내용 감지: {user_query[:30]}...")
-            response = "죄송합니다. 부적절하거나 부정적인 내용이 포함된 질문에는 답변할 수 없습니다."
-            sentiment_debug_info["filter_type"] = "sentiment_analysis"
-                        
-            return JSONResponse({"response": response})
+      
 
            
         answer = answer_with_rag(user_query)
