@@ -579,11 +579,18 @@ async def web_chat(request: Request):
 # 서버 초기화 및 실행을 위한 이벤트
 @app.on_event("startup")
 async def startup_event():
+    # 로깅 시스템 설정
+    logger = setup_logging()
+    logger.info("==== 웹 챗봇 서버 시작 ====")
+    
+    # 모델 및 RAG 시스템 초기화
+    logger.info("LangChain RAG 시스템 초기화 시작")
+
     # 모델 및 RAG 시스템 초기화
     init_success = init_rag_system()
 
     if not init_success:
-        logger.info("초기화 실패. 서버를 시작할 수 없습니다.")
+        logger.error("초기화 실패. 서버를 시작할 수 없습니다.")
         import sys
         sys.exit(1)
     else:
