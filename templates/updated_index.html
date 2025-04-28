@@ -4,29 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>재명이네 마을</title>
-    <link rel="stylesheet" href="../static/updated_style.css">
+    <link rel="stylesheet" href="../static/style.css">
 </head>
 <body>
     <!-- ChatGPT-style container -->
     <div class="app-container">
-        <!-- Sidebar -->
-        <div class="sidebar">
-            <div class="new-chat-button">
-                <button id="new-chat-btn">
-                    <span class="plus-icon">+</span>
-                    <span>새 채팅</span>
-                </button>
-            </div>
-            <div class="history-container">
-                <!-- Chat history would appear here -->
-            </div>
-            <div class="user-section">
-                <div class="user-info">
-                    <div class="user-avatar">사용자</div>
-                </div>
-            </div>
-        </div>
-
         <!-- Main content -->
         <div class="main-content">
             <!-- Landing page (visible first) -->
@@ -61,6 +43,12 @@
 
             <!-- Chat interface (hidden initially) -->
             <div id="chat-interface" class="chat-interface hidden">
+                <div class="header-container">
+                    <button id="new-chat-btn" class="new-chat-button">
+                        <span class="plus-icon">+</span>
+                        <span>새 채팅</span>
+                    </button>
+                </div>
                 <div class="chat-container">
                     <div class="messages-container" id="messages-container">
                         <div class="message bot-message">
@@ -100,6 +88,6 @@
         </div>
     </div>
 
-    <script src="../static/updated_script.js"></script>
+    <script src="../static/script.js"></script>
 </body>
 </html>
