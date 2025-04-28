@@ -1,5 +1,10 @@
+
 import os
+from logging.handlers import RotatingFileHandler
+from datetime import datetime
 import re
+import csv
+import uuid
 import json
 import torch
 import uvicorn
@@ -35,6 +40,13 @@ pdf_paths = [
     "정책공약집.pdf",
     "지역공약.pdf"
 ]
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CSV_FILE = os.path.join(BASE_DIR, "comments.csv")
+
+if not os.path.exists(CSV_FILE):
+    with open(CSV_FILE, "w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(["id", "text", "timestamp"])
 
 # 정적 파일 및 템플릿 디렉토리 경로 설정
 static_dir = os.path.join(os.path.dirname(__file__), "static")
@@ -44,53 +56,181 @@ templates_dir = os.path.join(os.path.dirname(__file__), "templates")
 pdf_files_info = {
     "full": {
         "title": "더불어민주당 제20대 대통령선거 정책공약집",
-        "path": "pdfs/full.pdf",
-        "thumbnail": "images/pdf_thumbnail.jpg"
+        "path": "static/pdfs/full.pdf",
+        "thumbnail": "static/images/pdf_thumbnail.jpg"
     },
     "file1": {
         "title": "삶의 터전별 공약",
-        "path": "pdfs/file1.pdf"
+        "path": "static/pdfs/file1.pdf"
     },
     "file2": {
         "title": "대상별 공약",
-        "path": "pdfs/file2.pdf"
+        "path": "static/pdfs/file2.pdf"
     },
     "file3": {
         "title": "1. 신경제",
-        "path": "pdfs/file3.pdf"
+        "path": "static/pdfs/file3.pdf"
     },
     "file4": {
         "title": "2. 공정성장",
-        "path": "pdfs/file4.pdf"
+        "path": "static/pdfs/file4.pdf"
     },
     "file5": {
         "title": "3. 민생안정",
-        "path": "pdfs/file5.pdf"
+        "path": "static/pdfs/file5.pdf"
     },
     "file6": {
         "title": "4. 민주사회",
-        "path": "pdfs/file6.pdf"
+        "path": "static/pdfs/file6.pdf"
     },
     "file7": {
         "title": "5. 평화안보",
-        "path": "pdfs/file7.pdf"
+        "path": "static/pdfs/file7.pdf"
     },
     "file8": {
         "title": "소확행·명확행·SNS발표 공약",
-        "path": "pdfs/file8.pdf"
+        "path": "static/pdfs/file8.pdf"
     }
 }
+
+
+# 감정 분석 프롬프트
+sentiment_analysis_prompt = PromptTemplate.from_template(
+    """다음 텍스트의 감정과 의도를 분석해주세요:
+    
+    텍스트: {text}
+    
+    이 텍스트가 다음 중 하나라도 명확하게 포함하는 경우에만 "부적절"이라고 답하세요:
+    1. 직접적인 비속어나 욕설
+    2. 명백히 성적으로 부적절한 내용
+    3. 특정 집단을 향한 혐오 표현이나 차별적 언어
+    4. 직접적인 위협이나 폭력적인 내용
+    5. 개인정보 요청이나 유출
+    6. 명백히 불법적인 활동 유도
+    7. 특정 정치인이나 개인에 대한 심한 비방이나 인신공격
+    
+    일반적인 질문, 정책 문의, 중립적 의견, 단순한 부정적 의견 표현 등은 "적절"로 분류하세요.
+    정치적 주제나 비판적 질문이라도 예의를 갖추고 있다면 "적절"로 분류하세요.
+    의도가 불분명하거나 맥락이 불충분하다면 "적절"로 분류하세요.
+    
+    결과(정확히 "적절" 또는 "부적절" 중 하나만 답변):
+    """
+)
+
+# 감정 분석 체인 생성
+def create_sentiment_analysis_chain(llm):
+    sentiment_chain = (
+        sentiment_analysis_prompt
+        | llm
+        | StrOutputParser()
+    )
+    return sentiment_chain
+
+# 로깅 설정 함수
+def setup_logging():
+    """로깅 시스템 설정"""
+    # 로그 디렉토리 생성
+    log_dir = os.path.join(BASE_DIR, "logs")
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    
+    # 로그 파일 이름 (날짜 포함)
+    log_filename = os.path.join(log_dir, f"chatbot_{datetime.now().strftime('%Y-%m-%d')}.log")
+    
+    # 로거 설정
+    logger = logging.getLogger("chatbot")
+    logger.setLevel(logging.INFO)
+    
+    # 파일 핸들러 설정 (10MB 크기 제한, 최대 5개 백업 파일)
+    file_handler = RotatingFileHandler(
+        log_filename, 
+        maxBytes=10*1024*1024,  # 10 MB
+        backupCount=5,
+        encoding='utf-8'
+    )
+    
+    # 콘솔 핸들러 설정
+    console_handler = logging.StreamHandler()
+    
+    # 포맷 설정
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+    
+    # 핸들러 추가
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    
+    return logger
 
 # 전역 변수로 모델과 벡터 스토어 선언
 model = None
 tokenizer = None
 vectorstore = None
 
+# 감정 분석 함수
+async def analyze_sentiment(text, sentiment_chain):
+    """텍스트의 감정과 의도를 분석하여 적절성 판단"""
+    try:
+        # 분석 결과 가져오기
+        result = sentiment_chain.invoke({"text": text})
+        
+        # 로그에 분석 결과 기록
+        logger.info(f"감정 분석 원본 결과: '{result}' (텍스트: '{text[:50]}...')")
+        
+        # 단순화된 결과 추출: "적절" 또는 "부적절" 키워드를 찾음
+        is_inappropriate = False
+        
+        # 결과에서 마지막 50자만 검사 (최종 판단은 보통 마지막에 있음)
+        last_part = result[-10:] if len(result) > 10 else result
+        
+        if "부적절" in last_part:
+            is_inappropriate = True
+        elif "적절" in last_part:
+            is_inappropriate = False
+        else:
+            # 두 키워드가 모두 없으면 분석 실패로 간주, 기본값 사용
+            logger.warning(f"감정 분석 결과에서 판단 키워드를 찾을 수 없음: {last_part}")
+            is_inappropriate = False
+        
+        logger.info(f"부적절 여부 판단: {is_inappropriate}")
+        
+        return is_inappropriate, result
+    except Exception as e:
+        logger.error(f"감정 분석 중 오류 발생: {str(e)}")
+        return False, f"오류: {str(e)}"
+    
+# 금지어 목록
+prohibited_words = [
+    "씨발", "병신", "개새끼", "지랄", "좆", "니미", "fuck", "sex", "bastard", "bitch",
+    "개자식", "걸레", "창녀", "쌍놈", "쌍년", "애미", "애비", 
+    "전화번호", "주민번호", "계좌번호", "신용카드", "범죄자", "쓰레기"
+]
+
+def contains_prohibited_content(text):
+    """입력된 텍스트에 비속어나 개인 정보가 포함되어 있는지 확인"""
+    text_lower = text.lower()
+    
+    # 금지어 체크
+    for word in prohibited_words:
+        if word.lower() in text_lower:
+            return True
+            
+    # 이름 패턴 체크
+    name_pattern = re.compile(r'[가-힣]{2,4}\s?씨')
+    if name_pattern.search(text):
+        return True
+        
+    return False
+
+
 def init_rag_system():
     """RAG 시스템 초기화"""
     global model, tokenizer, vectorstore
 
-    print("RAG 시스템 초기화 중...")
+    logger.info("RAG 시스템 초기화 중...")
 
     # 1. PDF 문서 로드 및 텍스트 추출
     documents = []
@@ -99,10 +239,10 @@ def init_rag_system():
             loader = PyPDFLoader(pdf_path)
             documents.extend(loader.load())
         else:
-            print(f"파일이 존재하지 않습니다: {pdf_path}")
+            logger.info(f"파일이 존재하지 않습니다: {pdf_path}")
 
     if not documents:
-        print("로드된 문서가 없습니다. 파일 경로를 확인해주세요.")
+        logger.info("로드된 문서가 없습니다. 파일 경로를 확인해주세요.")
         return False
 
     # 2. 텍스트 분할
@@ -112,30 +252,30 @@ def init_rag_system():
         length_function=len
     )
     chunks = text_splitter.split_documents(documents)
-    print(f"문서를 {len(chunks)}개의 청크로 분할했습니다.")
+    logger.info(f"문서를 {len(chunks)}개의 청크로 분할했습니다.")
 
     # 3. 임베딩 모델 설정
-    print("임베딩 모델 로드 중...")
+    logger.info("임베딩 모델 로드 중...")
     embedding_model = HuggingFaceEmbeddings(
         model_name="sentence-transformers/distiluse-base-multilingual-cased-v1",
         model_kwargs={'device': 'cuda' if torch.cuda.is_available() else 'cpu'},
         encode_kwargs={'normalize_embeddings': True}
     )
-    print("임베딩 모델 로드 성공!")
+    logger.info("임베딩 모델 로드 성공!")
 
     # 4. 벡터 데이터베이스 생성
-    print("벡터 데이터베이스 생성 중...")
+    logger.info("벡터 데이터베이스 생성 중...")
     vectorstore = FAISS.from_documents(chunks, embedding_model)
-    print("벡터 데이터베이스 생성 완료")
+    logger.info("벡터 데이터베이스 생성 완료")
 
     for doc_id in list(vectorstore.docstore._dict.keys())[:3]:  # 처음 3개만 출력해 로그 크기 제한
-        print(f"문서 ID {doc_id}의 내용 (샘플):")
-        print(vectorstore.docstore._dict[doc_id])
-        print("-" * 50)
+        logger.info(f"문서 ID {doc_id}의 내용 (샘플):")
+        logger.info(vectorstore.docstore._dict[doc_id])
+        logger.info("-" * 50)
 
     # 5. EXAONE 모델 로드
     model_name = "LGAI-EXAONE/EXAONE-3.5-7.8B-Instruct"
-    print(f"{model_name} 모델 로드 중...")
+    logger.info(f"{model_name} 모델 로드 중...")
 
     # 토크나이저 로드
     tokenizer = AutoTokenizer.from_pretrained(
@@ -159,7 +299,7 @@ def init_rag_system():
         trust_remote_code=True,
         low_cpu_mem_usage=True
     )
-    print("EXAONE 모델 로드 완료!")
+    logger.info("EXAONE 모델 로드 완료!")
 
     # 성능 최적화 설정 적용
     optimize_performance()
@@ -183,7 +323,7 @@ def optimize_performance():
         if hasattr(model.config, 'gradient_checkpointing'):
             model.config.gradient_checkpointing = False
 
-    print("성능 최적화 설정이 적용되었습니다.")
+    logger.info("성능 최적화 설정이 적용되었습니다.")
 
 def retrieve_context(query, k):
     """쿼리와 관련된 문서를 검색하여 컨텍스트를 생성합니다."""
@@ -319,6 +459,21 @@ async def comments_page():
 async def get_files():
     return JSONResponse(pdf_files_info)
 
+
+@app.get("/view-pdf")
+async def view_pdf():
+    # StaticFiles 미들웨어가 이미 /static 경로에 마운트되어 있으므로
+    # STATIC_DIR 내부의 경로만 지정
+    file_path = os.path.join(static_dir, "pdfs/region_document.pdf")
+    if not os.path.exists(file_path):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="문서를 찾을 수 없습니다.")
+    return FileResponse(
+        path=file_path,
+        media_type="application/pdf",
+        content_disposition_type="inline"
+    )
+
 # PDF 다운로드 라우트
 @app.get('/download/{file_id}')
 async def download_pdf(file_id: str):
@@ -331,11 +486,46 @@ async def download_pdf(file_id: str):
         )
     return JSONResponse({"error": "파일을 찾을 수 없습니다."}, status_code=404)
 
+# 댓글 목록 가져오기 API
+@app.get("/api/comments")
+async def get_comments():
+    comments = []
+    try:
+        with open(CSV_FILE, "r", encoding="utf-8") as file:
+            reader = csv.DictReader(file)
+            for row in reader:
+                comments.append({
+                    "id": row["id"],
+                    "text": row["text"],
+                    "timestamp": row["timestamp"]
+                })
+        return {"success": True, "comments": comments}
+    except Exception as e:
+        logger.error(f"댓글 목록 가져오기 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 댓글 저장하기 API
+@app.post("/api/comments")
+async def create_comment(comment: Comment):
+    try:
+        comment_id = str(uuid.uuid4())
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(CSV_FILE, "a", newline="", encoding="utf-8") as file:
+            writer = csv.writer(file)
+            writer.writerow([comment_id, comment.text, timestamp])
+        logger.info(f"새로운 댓글이 저장됨: {comment_id}")
+        return {"success": True, "id": comment_id}
+    except Exception as e:
+        logger.error(f"댓글 저장 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+'''
 # comments.csv 파일 접근 라우트
 @app.get('/api/comments')
 async def get_comments():
     comments_path = os.path.join(static_dir, "comments.csv")
     
+
     # 파일이 존재하는지 확인
     if not os.path.exists(comments_path):
         return JSONResponse({"error": "댓글 데이터가 없습니다."}, status_code=404)
@@ -359,7 +549,7 @@ async def get_comments():
         
         return JSONResponse({"comments": comments})
     except Exception as e:
-        print(f"Error reading comments: {str(e)}")
+        logger.info(f"Error reading comments: {str(e)}")
         return JSONResponse({"error": "댓글 데이터를 처리하는 중 오류가 발생했습니다."}, status_code=500)
 
 # POST를 통한 댓글 추가 기능
@@ -385,8 +575,9 @@ async def add_comment(request: Request):
         
         return JSONResponse({"success": True})
     except Exception as e:
-        print(f"Error adding comment: {str(e)}")
+        logger.info(f"Error adding comment: {str(e)}")
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+'''    
 
 # 웹 버전 채팅 엔드포인트 
 @app.post('/api/chat')
@@ -394,8 +585,13 @@ async def web_chat(request: Request):
     # 웹 요청 파싱
     req = await request.json()
     
+    
+    session_id = req.get('session_id', 'default')
+
     # 사용자 메시지 추출
     user_query = req.get('message', '')
+
+    logger.info(f"세션 {session_id}에서 새로운 메시지 수신: {user_query[:30]}..." if len(user_query) > 30 else user_query)
     
     if not user_query:
         return JSONResponse({
@@ -403,10 +599,39 @@ async def web_chat(request: Request):
         })
     
     try:
+        sentiment_debug_info = {}  # 감정 분석 디버그 정보
+        
+        # 1단계: 기본 금지어 필터링
+        if contains_prohibited_content(user_query):
+            logger.warning(f"금지어 필터링 - 부적절한 내용 감지: {user_query[:30]}...")
+            response = "죄송합니다. 부적절한 언어나 개인정보가 포함된 질문에는 답변할 수 없습니다."
+            sentiment_debug_info["filter_type"] = "prohibited_words"
+
+            return JSONResponse({
+                "response": response
+            }, headers={"Content-Type": "application/json; charset=utf-8"})
+
+        # 2단계: 감정 분석을 통한 부정적 어휘 필터링
+        is_inappropriate, analysis_result = await analyze_sentiment(user_query, sentiment_chain)
+        
+        # 디버그 정보 저장
+        sentiment_debug_info = {
+            "analysis_result": analysis_result,
+            "is_inappropriate": is_inappropriate
+        }
+        
+        if is_inappropriate:
+            logger.warning(f"감정 분석 필터링 - 부정적 내용 감지: {user_query[:30]}...")
+            response = "죄송합니다. 부적절하거나 부정적인 내용이 포함된 질문에는 답변할 수 없습니다."
+            sentiment_debug_info["filter_type"] = "sentiment_analysis"
+                        
+            return JSONResponse({"response": response})
+
+           
         answer = answer_with_rag(user_query)
         
-        print(f"질문: {user_query}")
-        print(f"응답: {answer}")
+        logger.info(f"질문: {user_query}")
+        logger.info(f"응답: {answer}")
 
         # 웹 클라이언트 응답 형식 (HTML 태그가 해석되도록 safe=False 설정)
         return JSONResponse({
@@ -414,7 +639,7 @@ async def web_chat(request: Request):
         }, headers={"Content-Type": "application/json; charset=utf-8"})
         
     except Exception as e:
-        print(f"오류 발생: {str(e)}")
+        logger.info(f"오류 발생: {str(e)}")
         return JSONResponse({
             "response": f"죄송합니다. 처리 중 오류가 발생했습니다: {str(e)}"
         }, status_code=500)
@@ -426,11 +651,11 @@ async def startup_event():
     init_success = init_rag_system()
 
     if not init_success:
-        print("초기화 실패. 서버를 시작할 수 없습니다.")
+        logger.info("초기화 실패. 서버를 시작할 수 없습니다.")
         import sys
         sys.exit(1)
     else:
-        print("서버 시작 준비 완료! 서버를 실행합니다.")
+        logger.info("서버 시작 준비 완료! 서버를 실행합니다.")
         
 # 서버 실행
 if __name__ == "__main__":
