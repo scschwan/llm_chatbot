@@ -28,8 +28,48 @@ pdf_paths = [
 
 # 정적 파일 및 템플릿 디렉토리 경로 설정
 static_dir = os.path.join(os.path.dirname(__file__), "static")
-pdf_files_info = os.path.join(os.path.dirname(__file__), "static/pdfs")
 templates_dir = os.path.join(os.path.dirname(__file__), "templates")
+
+# PDF 파일 정보 - API 요청 시 반환될 정보
+pdf_files_info = {
+    "full": {
+        "title": "더불어민주당 제20대 대통령선거 정책공약집",
+        "path": "pdfs/full.pdf",
+        "thumbnail": "images/pdf_thumbnail.jpg"
+    },
+    "file1": {
+        "title": "삶의 터전별 공약",
+        "path": "pdfs/file1.pdf"
+    },
+    "file2": {
+        "title": "대상별 공약",
+        "path": "pdfs/file2.pdf"
+    },
+    "file3": {
+        "title": "1. 신경제",
+        "path": "pdfs/file3.pdf"
+    },
+    "file4": {
+        "title": "2. 공정성장",
+        "path": "pdfs/file4.pdf"
+    },
+    "file5": {
+        "title": "3. 민생안정",
+        "path": "pdfs/file5.pdf"
+    },
+    "file6": {
+        "title": "4. 민주사회",
+        "path": "pdfs/file6.pdf"
+    },
+    "file7": {
+        "title": "5. 평화안보",
+        "path": "pdfs/file7.pdf"
+    },
+    "file8": {
+        "title": "소확행·명확행·SNS발표 공약",
+        "path": "pdfs/file8.pdf"
+    }
+}
 
 # 전역 변수로 모델과 벡터 스토어 선언
 model = None
@@ -177,16 +217,16 @@ def post_process_answer(answer):
     answer = re.sub(r'\*\*(.*?)\*\*', r'\1', answer)
     
     # "다음과 같습니다" 패턴 제거
-    answer = re.sub(r'^(다음과 같습니다|관련 공약은 다음과 같습니다|다음과 같은 내용이 있습니다|다음과 같은 공약이 있습니다|다음을 참고하세요)[\.:]?\s*', '', answer)
+    answer = re.sub(r'^(다음과 같습니다|관련 공약은 다음과 같습니다|다음과 같은 내용이 있습니다|다음과 같은 공약이 있습니다|다음을 참고하세요)[\\.:]?\\s*', '', answer)
     
     # "~입니다"로 시작하는 패턴 제거
-    answer = re.sub(r'^[^\.]*입니다[\.:]?\s*', '', answer)
+    answer = re.sub(r'^[^\\.]*입니다[\\.:]?\\s*', '', answer)
     
     # 모든 콜론 뒤에 줄바꿈 추가
-    answer = re.sub(r':\s*', ':\n', answer)
+    answer = re.sub(r':\\s*', ':\n', answer)
     
     # 번호 리스트 형식 정리
-    answer = re.sub(r'(\d+)\.\s+', r'\n\1. ', answer)
+    answer = re.sub(r'(\\d+)\\.\\s+', r'\n\\1. ', answer)
     
     # 불필요한 연속된 줄바꿈 정리
     answer = re.sub(r'(<br>){3,}', '<br><br>', answer)
@@ -243,6 +283,9 @@ def create_exaone_pipeline(model, tokenizer):
         pad_token_id=tokenizer.eos_token_id
     )
 
+# 정적 파일 서빙 설정
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
 @app.get('/')
 async def get_index():
     index_path = os.path.join(templates_dir, "index.html")
@@ -251,8 +294,63 @@ async def get_index():
     else:
         return JSONResponse({"message": "index.html 파일을 찾을 수 없습니다"}, status_code=404)
 
-# 정적 파일 서빙 설정
-app.mount("/static", StaticFiles(directory=static_dir), name="static")
+# PDF 페이지 라우트 추가
+@app.get('/pdf')
+async def pdf_page():
+    return FileResponse(os.path.join(templates_dir, "pdf.html"))
+
+# Comments 페이지 라우트 추가
+@app.get('/pdf/comments')
+async def comments_page():
+    return FileResponse(os.path.join(templates_dir, "comments.html"))
+
+# PDF 파일 정보 API 엔드포인트
+@app.get('/api/files')
+async def get_files():
+    return JSONResponse(pdf_files_info)
+
+# PDF 다운로드 라우트 추가
+@app.get('/download/{file_id}')
+async def download_pdf(file_id: str):
+    if file_id in pdf_files_info:
+        file_path = pdf_files_info[file_id]["path"]
+        return FileResponse(
+            path=os.path.join(static_dir, file_path),
+            filename=f"{pdf_files_info[file_id]['title']}.pdf",
+            media_type="application/pdf"
+        )
+    return JSONResponse({"error": "파일을 찾을 수 없습니다."}, status_code=404)
+
+# comments.csv 파일 접근 라우트
+@app.get('/api/comments')
+async def get_comments():
+    comments_path = os.path.join(static_dir, "comments.csv")
+    
+    # 파일이 존재하는지 확인
+    if not os.path.exists(comments_path):
+        return JSONResponse({"error": "댓글 데이터가 없습니다."}, status_code=404)
+    
+    try:
+        # CSV 파일 읽기
+        with open(comments_path, 'r', encoding='utf-8') as file:
+            content = file.read()
+        
+        # CSV 파일을 파싱하여 JSON 형식으로 변환
+        lines = content.strip().split('\n')
+        headers = lines[0].split(',')
+        
+        comments = []
+        for i in range(1, len(lines)):
+            values = lines[i].split(',')
+            comment = {}
+            for j in range(min(len(headers), len(values))):
+                comment[headers[j]] = values[j]
+            comments.append(comment)
+        
+        return JSONResponse({"comments": comments})
+    except Exception as e:
+        print(f"Error reading comments: {str(e)}")
+        return JSONResponse({"error": "댓글 데이터를 처리하는 중 오류가 발생했습니다."}, status_code=500)
 
 # 웹 버전 채팅 엔드포인트 
 @app.post('/api/chat')
@@ -297,61 +395,7 @@ async def startup_event():
         sys.exit(1)
     else:
         print("서버 시작 준비 완료! 서버를 실행합니다.")
-
-# PDF 페이지 라우트 추가 (기존 코드에 추가)
-@app.get('/pdf')
-async def pdf_page():
-    return FileResponse(os.path.join(static_dir, "pdf.html"))
-
-# 새로운 comments 페이지 라우트 추가
-@app.get('/pdf/comments')
-async def comments_page():
-    return FileResponse(os.path.join(static_dir, "comments.html"))
-
-# PDF 다운로드 라우트 추가
-@app.get('/download/{file_id}')
-async def download_pdf(file_id: str):
-    if file_id in pdf_files_info:
-        # PDF 파일 경로에서 '/static' 부분을 제거하고 실제 파일 경로 얻기
-        file_path = pdf_files_info[file_id]["path"].replace("/static/", "")
-        return FileResponse(
-            path=os.path.join(static_dir, file_path),
-            filename=f"{pdf_files_info[file_id]['title']}.pdf",
-            media_type="application/pdf"
-        )
-    return JSONResponse({"error": "파일을 찾을 수 없습니다."}, status_code=404)
-
-# comments.csv 파일 접근 라우트 추가
-@app.get('/api/comments')
-async def get_comments():
-    comments_path = os.path.join(static_dir, "comments.csv")
-    
-    # 파일이 존재하는지 확인
-    if not os.path.exists(comments_path):
-        return JSONResponse({"error": "댓글 데이터가 없습니다."}, status_code=404)
-    
-    try:
-        # CSV 파일 읽기
-        with open(comments_path, 'r', encoding='utf-8') as file:
-            content = file.read()
         
-        # CSV 파일을 파싱하여 JSON 형식으로 변환
-        lines = content.strip().split('\n')
-        headers = lines[0].split(',')
-        
-        comments = []
-        for i in range(1, len(lines)):
-            values = lines[i].split(',')
-            comment = {}
-            for j in range(min(len(headers), len(values))):
-                comment[headers[j]] = values[j]
-            comments.append(comment)
-        
-        return JSONResponse({"comments": comments})
-    except Exception as e:
-        print(f"Error reading comments: {str(e)}")
-        return JSONResponse({"error": "댓글 데이터를 처리하는 중 오류가 발생했습니다."}, status_code=500)
-    
 # 서버 실행
 if __name__ == "__main__":
-    uvicorn.run("chatbot_web:app", host="0.0.0.0", port=5001)
+    uvicorn.run("chatbot_web:app", host="0.0.0.0", port=5000)
