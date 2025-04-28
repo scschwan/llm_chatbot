@@ -8,7 +8,7 @@ import uuid
 import json
 import torch
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request ,HTTPException
 from pydantic import BaseModel
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -546,6 +546,7 @@ async def web_chat(request: Request):
 # 서버 초기화 및 실행을 위한 이벤트
 @app.on_event("startup")
 async def startup_event():
+    global logger
     # 로깅 시스템 설정
     logger = setup_logging()
     logger.info("==== 웹 챗봇 서버 시작 ====")
