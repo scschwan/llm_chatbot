@@ -1,4 +1,4 @@
-
+import logging
 import os
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
@@ -93,39 +93,6 @@ pdf_files_info = {
         "path": "static/pdfs/file8.pdf"
     }
 }
-
-
-# 감정 분석 프롬프트
-sentiment_analysis_prompt = PromptTemplate.from_template(
-    """다음 텍스트의 감정과 의도를 분석해주세요:
-    
-    텍스트: {text}
-    
-    이 텍스트가 다음 중 하나라도 명확하게 포함하는 경우에만 "부적절"이라고 답하세요:
-    1. 직접적인 비속어나 욕설
-    2. 명백히 성적으로 부적절한 내용
-    3. 특정 집단을 향한 혐오 표현이나 차별적 언어
-    4. 직접적인 위협이나 폭력적인 내용
-    5. 개인정보 요청이나 유출
-    6. 명백히 불법적인 활동 유도
-    7. 특정 정치인이나 개인에 대한 심한 비방이나 인신공격
-    
-    일반적인 질문, 정책 문의, 중립적 의견, 단순한 부정적 의견 표현 등은 "적절"로 분류하세요.
-    정치적 주제나 비판적 질문이라도 예의를 갖추고 있다면 "적절"로 분류하세요.
-    의도가 불분명하거나 맥락이 불충분하다면 "적절"로 분류하세요.
-    
-    결과(정확히 "적절" 또는 "부적절" 중 하나만 답변):
-    """
-)
-
-# 감정 분석 체인 생성
-def create_sentiment_analysis_chain(llm):
-    sentiment_chain = (
-        sentiment_analysis_prompt
-        | llm
-        | StrOutputParser()
-    )
-    return sentiment_chain
 
 # 로깅 설정 함수
 def setup_logging():
