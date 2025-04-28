@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>반응형 채팅 인터페이스</title>
+    <link rel="stylesheet" href="../static/style.css">
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1>
+               🤖 민주랑 🤖
+            </h1>
+        </div>
+        
+        <div class="messages-container" id="messages-container">
+            <div class="message bot-message">
+                안녕하세요! 😃 더불어민주당의 정책 궁금증 해결사, 민주랑입니다! 🤖
+                <br><br>
+                여러분의 삶을 더 나은 방향으로 이끌어줄 정책, 민주랑이 쉽고 빠르게 알려드릴게요! 🙌
+                <br><br>
+                ✨더불어민주당✨의 어떤 공약이 궁금하신가요? 🤔
+                <br><br>
+                공약에 대해 무엇이든 물어보세요! 💬
+                (❓ 예시질문 : 반려동물 키우는 사람이 관심있어 할 만한 공약 알려줘)
+            </div>
+            <!-- 메시지들이 여기에 추가됩니다 -->
+        </div>
+        
+        <div class="input-area">
+            <textarea
+                class="message-input"
+                id="message-input"
+                placeholder="메시지를 입력하세요..."
+                rows="1"
+            ></textarea>
+            <button class="send-button" id="send-button">전송</button>
+        </div>
+    </div>
+
+    <script src="../static/script.js"></script>
+</body>
+</html>

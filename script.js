@@ -4,7 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const sendButton = document.getElementById('send-button');
     let isWaitingForResponse = false;
 
-    // API 기본 URL - 서버의 URL에 맞게 수정
+    // API 기본 URL
     const API_URL = '/api/chat';
 
     // 텍스트 영역 자동 높이 조절
@@ -68,8 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
             messageElement.className = `message ${sender}-message`;
         }
         
-        // 텍스트에 줄바꿈이 있으면 HTML에서도 줄바꿈 처리
-        messageElement.innerHTML = text.replace(/\n/g, '<br>');
+        messageElement.textContent = text;
         messagesContainer.appendChild(messageElement);
         scrollToBottom();
     }
@@ -79,7 +78,6 @@ document.addEventListener('DOMContentLoaded', () => {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
 
-    // 서버로 메시지 전송 및 응답 처리
     // 서버로 메시지 전송 및 응답 처리
     async function sendToServer(userMessage, loadingElement) {
         try {
@@ -99,7 +97,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             const data = await response.json();
-            console.log("서버 응답:", data);  // 응답 로깅
             
             // 서버 응답 추가
             if (data && data.response) {
