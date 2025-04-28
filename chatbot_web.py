@@ -354,4 +354,4 @@ async def get_comments():
     
 # 서버 실행
 if __name__ == "__main__":
-    uvicorn.run("chatbot-web:app", host="0.0.0.0", port=5001)
+    uvicorn.run("chatbot_web:app", host="0.0.0.0", port=5001)
