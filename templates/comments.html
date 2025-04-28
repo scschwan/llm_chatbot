@@ -102,6 +102,27 @@
         .dislike-button:hover {
             color: #f44336;
         }
+        
+        .back-button-container {
+            margin-top: 20px;
+            text-align: center;
+        }
+        
+        .back-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 15px;
+            background-color: #f0f0f0;
+            color: #333;
+            border-radius: 5px;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        
+        .back-button:hover {
+            background-color: #e0e0e0;
+        }
     </style>
 </head>
 <body>
@@ -112,6 +133,12 @@
         </div>
         <div class="comment-list" id="comment-list">
             <!-- 댓글들이 여기에 추가됩니다 -->
+        </div>
+        
+        <div class="back-button-container">
+            <a href="/pdf" class="back-button">
+                <i class="fas fa-arrow-left"></i> 정책 공약집으로 돌아가기
+            </a>
         </div>
     </div>
 
@@ -169,13 +196,18 @@
                 .then(response => response.json())
                 .then(data => {
                     commentList.innerHTML = '';
-                    data.comments.forEach(comment => {
-                        const commentElement = createCommentElement(comment);
-                        commentList.appendChild(commentElement);
-                    });
+                    if (data.comments && data.comments.length > 0) {
+                        data.comments.forEach(comment => {
+                            const commentElement = createCommentElement(comment);
+                            commentList.appendChild(commentElement);
+                        });
+                    } else {
+                        commentList.innerHTML = '<div class="comment"><div class="comment-text">아직 응원 메시지가 없습니다. 첫 번째 응원 메시지를 남겨주세요!</div></div>';
+                    }
                 })
                 .catch(error => {
                     console.error('Error:', error);
+                    commentList.innerHTML = '<div class="comment"><div class="comment-text">댓글을 불러오는 중 오류가 발생했습니다.</div></div>';
                 });
             }
 
