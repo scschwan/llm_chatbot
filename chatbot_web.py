@@ -331,6 +331,9 @@ def generate_answer(prompt):
 
 def post_process_answer(answer):
     """응답을 후처리하여 일관된 형식으로 정제합니다."""
+    # 항목 앞의 과도한 공백 정리 (- 기호 앞의 공백 없앰)
+    answer = re.sub(r'^\s+- ', r'- ', answer, flags=re.MULTILINE)
+    
     # 불필요한 마크다운 제거
     answer = re.sub(r'\*\*(.*?)\*\*', r'\1', answer)
     
