@@ -518,66 +518,10 @@ async def create_comment(comment: Comment):
     except Exception as e:
         logger.error(f"댓글 저장 실패: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-    
-'''
-# comments.csv 파일 접근 라우트
-@app.get('/api/comments')
-async def get_comments():
-    comments_path = os.path.join(static_dir, "comments.csv")
-    
 
-    # 파일이 존재하는지 확인
-    if not os.path.exists(comments_path):
-        return JSONResponse({"error": "댓글 데이터가 없습니다."}, status_code=404)
-    
-    try:
-        # CSV 파일 읽기
-        with open(comments_path, 'r', encoding='utf-8') as file:
-            content = file.read()
-        
-        # CSV 파일을 파싱하여 JSON 형식으로 변환
-        lines = content.strip().split('\n')
-        headers = lines[0].split(',')
-        
-        comments = []
-        for i in range(1, len(lines)):
-            values = lines[i].split(',')
-            comment = {}
-            for j in range(min(len(headers), len(values))):
-                comment[headers[j]] = values[j]
-            comments.append(comment)
-        
-        return JSONResponse({"comments": comments})
-    except Exception as e:
-        logger.info(f"Error reading comments: {str(e)}")
-        return JSONResponse({"error": "댓글 데이터를 처리하는 중 오류가 발생했습니다."}, status_code=500)
-
-# POST를 통한 댓글 추가 기능
-@app.post('/api/comments')
-async def add_comment(request: Request):
-    try:
-        req_data = await request.json()
-        text = req_data.get('text', '').strip()
-        
-        if not text:
-            return JSONResponse({"success": False, "error": "댓글 내용이 비어있습니다."}, status_code=400)
-        
-        comments_path = os.path.join(static_dir, "comments.csv")
-        
-        # 파일이 존재하지 않으면 생성
-        if not os.path.exists(comments_path):
-            with open(comments_path, 'w', encoding='utf-8') as file:
-                file.write("text,likes,dislikes\n")
-        
-        # 댓글 추가
-        with open(comments_path, 'a', encoding='utf-8') as file:
-            file.write(f"{text},0,0\n")
-        
-        return JSONResponse({"success": True})
-    except Exception as e:
-        logger.info(f"Error adding comment: {str(e)}")
-        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
-'''    
+# 댓글 모델 정의
+class Comment(BaseModel):
+    text: str
 
 # 웹 버전 채팅 엔드포인트 
 @app.post('/api/chat')
